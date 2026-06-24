@@ -135,6 +135,10 @@ def test_csp_solver_handles_valid_and_infeasible_order_sets():
     infeasible = solve_delivery_csp(scenario, "forward_checking", ["O4", "O2"], 22, debug=True)
     assert valid["valid"] is True
     assert valid["assignment"]
+    assert valid["traceSteps"][0].debugData["traceType"] == "csp"
+    assert valid["traceSteps"][0].debugData["selectedVariable"].startswith("X1")
+    assert valid["traceSteps"][0].debugData["domainValues"]
+    assert any(step.phase == "try_value" for step in valid["traceSteps"])
     assert infeasible["valid"] is False
     assert any(step.phase == "forward_prune" for step in infeasible["traceSteps"])
 

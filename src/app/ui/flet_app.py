@@ -100,6 +100,28 @@ class FletDashboard:
             self.notify(str(exc), True)
             self.render()
 
+    def algorithm_allowed_for_user(self, algorithm: str) -> bool:
+        user = self.state.user
+        if user is None or user.role == "admin":
+            return True
+        if user.shipperGroup is None:
+            return False
+        if not self.state.permissions:
+            self.state.permissions = list_permissions()
+        return any(
+            permission.shipperGroup == user.shipperGroup
+            and permission.algorithmName == algorithm
+            and permission.enabled
+            for permission in self.state.permissions
+        )
+
+    def first_allowed_algorithm(self, group_key: str) -> str:
+        algorithms = ALGORITHM_GROUPS[group_key]["algorithms"]
+        return next(
+            (value for value, _ in algorithms if self.algorithm_allowed_for_user(value)),
+            algorithms[0][0],
+        )
+
     def login_view(self) -> ft.Control:
         username = ft.TextField(
             label="Username",
@@ -132,8 +154,7 @@ class FletDashboard:
                 self.state.user = authenticate(username.value or "", password.value or "")
                 self.state.workspace = "shipper" if self.state.user.role == "shipper" else "defense"
                 self.state.error = ""
-                if self.state.user.role == "admin":
-                    self.state.permissions = list_permissions()
+                self.state.permissions = list_permissions()
                 self.configure_shipper_workspace()
                 if self.state.user.role != "admin":
                     self.load_orders()
@@ -695,16 +716,22 @@ class FletDashboard:
 
     def defense_view(self) -> ft.Control:
         selected_group = ALGORITHM_GROUPS[self.state.group]
+        group_algorithm_values = [value for value, _ in selected_group["algorithms"]]
+        if self.state.algorithm not in group_algorithm_values or not self.algorithm_allowed_for_user(self.state.algorithm):
+            self.state.algorithm = self.first_allowed_algorithm(self.state.group)
 
         def set_group(group_key: str) -> None:
             self.stop_auto_run()
             self.state.group = group_key
-            self.state.algorithm = ALGORITHM_GROUPS[group_key]["algorithms"][0][0]
+            self.state.algorithm = self.first_allowed_algorithm(group_key)
             self.state.result = None
             self.state.trace_index = 0
             self.render()
 
         def set_algorithm(algorithm: str) -> None:
+            if not self.algorithm_allowed_for_user(algorithm):
+                self.notify(f"Thuat toan {algorithm} dang bi tat cho nhom cua ban.", True)
+                return
             self.stop_auto_run()
             self.state.algorithm = algorithm
             self.state.result = None
@@ -715,7 +742,16 @@ class FletDashboard:
             self.safe(self.run_lab)
 
         group_buttons = [outline_button(meta["label"], lambda _, key=key: set_group(key), selected=key == self.state.group) for key, meta in ALGORITHM_GROUPS.items()]
-        algorithm_buttons = [outline_button(label, lambda _, value=value: set_algorithm(value), selected=value == self.state.algorithm) for value, label in selected_group["algorithms"]]
+        algorithm_buttons = [
+            outline_button(
+                label,
+                lambda _, value=value: set_algorithm(value),
+                icon=None if self.algorithm_allowed_for_user(value) else ft.Icons.LOCK,
+                selected=value == self.state.algorithm,
+                disabled=not self.algorithm_allowed_for_user(value),
+            )
+            for value, label in selected_group["algorithms"]
+        ]
         node_options = [(node.id, f"{node.id} - {node.name}") for node in (self.state.scenario.nodes if self.state.scenario else [])]
         controls = [
             ft.Row([text("ALGORITHM GROUP", 11, MUTED, ft.FontWeight.W_900), pill(selected_group["short"], "green")]),
@@ -789,7 +825,12 @@ class FletDashboard:
                     text("MAX chon route; MIN chon disruption worst-case.", 11, MUTED),
                 ]
             )
-        controls.extend([ft.Container(height=1, bgcolor=LINE), text("CONTROLS", 11, MUTED, ft.FontWeight.W_900), primary_button(f"RUN {self.state.algorithm.upper()}", run_debug, ft.Icons.PLAY_ARROW)])
+        run_button = (
+            primary_button(f"RUN {self.state.algorithm.upper()}", run_debug, ft.Icons.PLAY_ARROW)
+            if self.algorithm_allowed_for_user(self.state.algorithm)
+            else outline_button(f"RUN {self.state.algorithm.upper()}", icon=ft.Icons.LOCK, disabled=True)
+        )
+        controls.extend([ft.Container(height=1, bgcolor=LINE), text("CONTROLS", 11, MUTED, ft.FontWeight.W_900), run_button])
         lab_controls = panel(ft.Column(controls, spacing=12), padding=14)
         return ft.ResponsiveRow(
             [
@@ -1147,6 +1188,11 @@ class FletDashboard:
     def run_lab(self) -> None:
         if not self.state.scenario or not self.state.user:
             return
+        if not self.algorithm_allowed_for_user(self.state.algorithm):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Thuat toan {self.state.algorithm} dang bi tat cho nhom cua ban.",
+            )
         group = ALGORITHM_GROUPS[self.state.group]
         mode = group["mode"]
         if mode == "pathfinding":
@@ -1659,6 +1705,16 @@ class FletDashboard:
                 padding=8,
             )
 
+        def step_title(item: Any) -> str:
+            return str(item.debugData.get("result") or item.phase)
+
+        def step_subtitle(item: Any) -> str:
+            tried = item.debugData.get("triedValue")
+            selected = item.debugData.get("selectedVariable")
+            if item.debugData.get("traceType") == "csp":
+                return str(tried if tried and tried != "-" else selected or item.currentNode or "-")
+            return str(item.currentNode or "-")
+
         rows = []
         window_start = max(0, min(self.state.trace_index - 2, max(0, len(result.traceSteps) - 6)))
         window_end = min(len(result.traceSteps), window_start + 6)
@@ -1676,7 +1732,7 @@ class FletDashboard:
                                 alignment=ft.alignment.center,
                                 border_radius=4,
                             ),
-                            ft.Column([text(item.phase, 12, TEXT, ft.FontWeight.W_800), text(item.currentNode or "-", 11, MUTED)], spacing=1, expand=True),
+                            ft.Column([text(step_title(item), 12, TEXT, ft.FontWeight.W_800), text(step_subtitle(item), 11, MUTED)], spacing=1, expand=True),
                             text(str(item.costSoFar), 11, MUTED),
                         ]
                     ),
@@ -1688,9 +1744,38 @@ class FletDashboard:
                 )
             )
         active_step = self.active_step()
+        is_csp_trace = bool(active_step and active_step.debugData.get("traceType") == "csp")
         at_first = self.state.trace_index <= 0
         at_last = self.state.trace_index >= len(result.traceSteps) - 1
-        debug_rows = [
+        if is_csp_trace and active_step:
+            csp_data = active_step.debugData
+            debug_rows = [
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            text("CSP FIELD", 11, MUTED, ft.FontWeight.W_900, width=125),
+                            text("VALUE", 11, MUTED, ft.FontWeight.W_900, expand=True),
+                        ],
+                        spacing=10,
+                    ),
+                    bgcolor=INK,
+                    border=ft.border.all(1, LINE),
+                    border_radius=4,
+                    padding=8,
+                ),
+                debug_row("bai toan", csp_data.get("concept")),
+                debug_row("bien", csp_data.get("selectedVariable")),
+                debug_row("mien", csp_data.get("domainValues", [])),
+                debug_row("gia tri thu", csp_data.get("triedValue")),
+                debug_row("rang buoc", csp_data.get("constraintCheck", [])),
+                debug_row("ket luan", csp_data.get("result")),
+                debug_row("gan hien tai", csp_data.get("assignment", [])),
+                debug_row("don hang", csp_data.get("remainingOrders", [])),
+                debug_row("tai trong", f"{csp_data.get('loadKg', 0)} / {csp_data.get('capacityKg', '-')} kg"),
+                debug_row("route tam", active_step.candidatePath),
+            ]
+        else:
+            debug_rows = [
                 ft.Container(
                     content=ft.Row(
                         [
@@ -1715,7 +1800,7 @@ class FletDashboard:
                 debug_row("costSoFar", round(active_step.costSoFar, 3) if active_step else "-"),
                 debug_row("heuristic", round(active_step.heuristic, 3) if active_step else "-"),
             ]
-        if active_step:
+        if active_step and not is_csp_trace:
             debug_rows.extend(debug_row(key, value) for key, value in list(active_step.debugData.items())[:10])
         debug_table = ft.Column(debug_rows, spacing=6)
         def debug_stat(label: str, value: str) -> ft.Control:
@@ -1794,9 +1879,15 @@ class FletDashboard:
                     ft.Row(
                         [
                             debug_stat("Current step", f"{self.state.trace_index + 1}/{len(result.traceSteps)}"),
-                            debug_stat("Current node", active_step.currentNode if active_step and active_step.currentNode else "-"),
-                            debug_stat("Frontier", str(len(active_step.frontier) if active_step else 0)),
-                            debug_stat("Visited", str(len(active_step.visitedNodes) if active_step else 0)),
+                            debug_stat(
+                                "Variable" if is_csp_trace else "Current node",
+                                str(active_step.debugData.get("selectedVariable", "-") if is_csp_trace and active_step else active_step.currentNode if active_step and active_step.currentNode else "-"),
+                            ),
+                            debug_stat("Domain" if is_csp_trace else "Frontier", str(len(active_step.frontier) if active_step else 0)),
+                            debug_stat(
+                                "Load" if is_csp_trace else "Visited",
+                                f"{active_step.debugData.get('loadKg', 0)} kg" if is_csp_trace and active_step else str(len(active_step.visitedNodes) if active_step else 0),
+                            ),
                         ],
                         spacing=8,
                         wrap=True,

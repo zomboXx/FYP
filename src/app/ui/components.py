@@ -50,15 +50,22 @@ def primary_button(label: str, on_click: Any = None, icon: str | None = None) ->
     )
 
 
-def outline_button(label: str, on_click: Any = None, icon: str | None = None, selected: bool = False) -> ft.OutlinedButton:
+def outline_button(
+    label: str,
+    on_click: Any = None,
+    icon: str | None = None,
+    selected: bool = False,
+    disabled: bool = False,
+) -> ft.OutlinedButton:
     return ft.OutlinedButton(
         label,
         icon=icon,
-        on_click=on_click,
+        disabled=disabled,
+        on_click=None if disabled else on_click,
         style=ft.ButtonStyle(
-            bgcolor=GREEN if selected else PANEL_2,
-            color=INK if selected else TEXT,
-            side=ft.BorderSide(1, GREEN if selected else LINE),
+            bgcolor=GREEN if selected else PANEL if disabled else PANEL_2,
+            color=INK if selected else LINE_LIGHT if disabled else TEXT,
+            side=ft.BorderSide(1, GREEN if selected else LINE if disabled else LINE_LIGHT),
             shape=ft.RoundedRectangleBorder(radius=4),
             text_style=ft.TextStyle(weight=ft.FontWeight.W_700, size=12),
         ),

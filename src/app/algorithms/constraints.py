@@ -131,6 +131,21 @@ def solve_delivery_csp(
             ),
         )
 
+    def action_label(order_id: str, action: str) -> str:
+        order = order_by_id[order_id]
+        target = location(order, action)
+        verb = "Nhan" if action == "pickup" else "Giao"
+        return f"{verb} {order_id} tai {target}"
+
+    def domain_labels(actions: list[tuple[str, str]]) -> list[str]:
+        return [action_label(order_id, action) for order_id, action in actions]
+
+    def remaining_orders(picked: set[str], delivered: set[str]) -> list[str]:
+        return [
+            f"{order.id}: {'da giao' if order.id in delivered else 'dang mang' if order.id in picked else 'chua nhan'}"
+            for order in orders
+        ]
+
     def forward_feasible(current: str, current_time: float, picked: set[str], delivered: set[str]) -> bool:
         for order in orders:
             if order.id in delivered:
@@ -156,23 +171,42 @@ def solve_delivery_csp(
         assignment: list[str],
         reason: str,
         load: float,
+        picked: set[str],
+        delivered: set[str],
+        tried_value: str | None = None,
+        result_label: str = "Dang xet",
+        constraint_checks: list[str] | None = None,
     ) -> None:
         if not debug:
             return
+        selected_variable = "Hoan tat assignment" if phase == "csp_solution" else f"X{len(assignment) + 1}: hanh dong tiep theo"
+        domain = domain_labels(actions)
         trace_steps.append(
             TraceStep(
                 stepIndex=len(trace_steps),
                 phase=phase,
                 currentNode=current,
-                frontier=[f"{action}:{order_id}" for order_id, action in actions],
+                frontier=domain,
                 visitedNodes=list(dict.fromkeys(route)),
                 candidatePath=route[:],
                 costSoFar=round(current_time, 2),
-                heuristic=float(len(actions)),
+                heuristic=float(len(domain)),
                 decisionReason=reason,
                 debugData={
+                    "traceType": "csp",
+                    "concept": "Bien = vi tri tiep theo trong chuoi pickup/dropoff; mien = cac hanh dong con hop le.",
+                    "selectedVariable": selected_variable,
+                    "domainValues": domain,
+                    "triedValue": tried_value or "-",
+                    "constraintCheck": constraint_checks or [
+                        "Dung thu tu: phai pickup truoc dropoff.",
+                        "Tai trong khong vuot suc chua xe.",
+                        "Thoi gian giao khong qua deadline.",
+                        "Co duong di hop le giua hai node.",
+                    ],
+                    "result": result_label,
                     "assignment": assignment[:],
-                    "domain": [f"{action}:{order_id}" for order_id, action in actions],
+                    "remainingOrders": remaining_orders(picked, delivered),
                     "loadKg": round(load, 2),
                     "capacityKg": capacity,
                 },
@@ -191,34 +225,140 @@ def solve_delivery_csp(
         nonlocal expanded_states, backtracks
         expanded_states += 1
         if len(delivered) == len(orders):
-            trace("csp_solution", current, route, current_time, [], assignment, "Tat ca don da duoc gan hop le.", load)
+            trace(
+                "csp_solution",
+                current,
+                route,
+                current_time,
+                [],
+                assignment,
+                "Da gan du gia tri cho cac bien X1..Xn va thoa tat ca rang buoc.",
+                load,
+                picked,
+                delivered,
+                result_label="Tim thay nghiem",
+                constraint_checks=["Tat ca don da pickup va dropoff dung thu tu, dung tai trong, dung deadline."],
+            )
             return route, assignment, current_time
 
         actions = available_actions(picked, delivered, load)
-        trace("select_variable", current, route, current_time, actions, assignment, "MRV chon hanh dong kha thi tiep theo.", load)
+        trace(
+            "select_variable",
+            current,
+            route,
+            current_time,
+            actions,
+            assignment,
+            f"Chon bien X{len(assignment) + 1}. Mien hien co {len(actions)} gia tri, sap xep dropoff truoc pickup va don gan deadline truoc.",
+            load,
+            picked,
+            delivered,
+            result_label="Chon bien va lap mien",
+        )
         for order_id, action in actions:
             order = order_by_id[order_id]
             target = location(order, action)
             segment, travel_minutes = travel(current, target)
             if not segment or travel_minutes >= BLOCKED_COST:
+                trace(
+                    "reject_value",
+                    current,
+                    route,
+                    current_time,
+                    actions,
+                    assignment,
+                    f"Loai {action_label(order_id, action)} vi khong co duong di hop le tu {current}.",
+                    load,
+                    picked,
+                    delivered,
+                    tried_value=action_label(order_id, action),
+                    result_label="Loai gia tri",
+                    constraint_checks=["Rang buoc duong di: that bai."],
+                )
                 continue
             next_time = max(current_time + travel_minutes, order.ready_min) if action == "pickup" else current_time + travel_minutes
             next_load = load + order.demand_kg if action == "pickup" else load - order.demand_kg
             if action == "dropoff" and next_time > order.due_min:
-                trace("reject_value", current, route, next_time, actions, assignment, f"Loai dropoff {order_id}: tre deadline {order.due_min}.", load)
+                trace(
+                    "reject_value",
+                    current,
+                    route,
+                    next_time,
+                    actions,
+                    assignment,
+                    f"Loai {action_label(order_id, action)} vi den phut {next_time:.1f}, tre deadline {order.due_min}.",
+                    load,
+                    picked,
+                    delivered,
+                    tried_value=action_label(order_id, action),
+                    result_label="Loai gia tri",
+                    constraint_checks=[
+                        f"Deadline {order_id}: den {next_time:.1f} <= han {order.due_min} la sai.",
+                        "Thu tu pickup/dropoff va tai trong khong vi pham tai buoc nay.",
+                    ],
+                )
                 continue
             next_picked = picked | {order_id} if action == "pickup" else set(picked)
             next_delivered = delivered | {order_id} if action == "dropoff" else set(delivered)
             next_route = route + (segment[1:] if route else segment)
             next_assignment = assignment + [f"{action}:{order_id}@{target}"]
+            trace(
+                "try_value",
+                target,
+                next_route,
+                next_time,
+                actions,
+                next_assignment,
+                f"Gan {action_label(order_id, action)} cho X{len(assignment) + 1}; cap nhat route, tai trong va thoi gian.",
+                next_load,
+                next_picked,
+                next_delivered,
+                tried_value=action_label(order_id, action),
+                result_label="Chap nhan tam thoi",
+                constraint_checks=[
+                    f"Duong di {current}->{target}: {travel_minutes:.1f} phut.",
+                    f"Tai trong sau buoc nay: {next_load:.1f}/{capacity:.1f} kg.",
+                    "Thu tu pickup/dropoff hop le.",
+                ],
+            )
             if algorithm == "forward_checking" and not forward_feasible(target, next_time, next_picked, next_delivered):
-                trace("forward_prune", target, next_route, next_time, actions, next_assignment, "Forward checking phat hien mien rong/infeasible.", next_load)
+                trace(
+                    "forward_prune",
+                    target,
+                    next_route,
+                    next_time,
+                    actions,
+                    next_assignment,
+                    "Forward checking nhin truoc cac don con lai va thay it nhat mot don khong the giao dung han.",
+                    next_load,
+                    next_picked,
+                    next_delivered,
+                    tried_value=action_label(order_id, action),
+                    result_label="Cat nhanh",
+                    constraint_checks=[
+                        "Kiem tra moi don chua giao: tu vi tri moi co kip pickup/dropoff truoc deadline khong.",
+                        "Neu mot don khong con mien gia tri kha thi thi nhanh nay bi cat.",
+                    ],
+                )
                 continue
             result = backtrack(target, next_time, next_load, next_picked, next_delivered, next_route, next_assignment)
             if result is not None:
                 return result
         backtracks += 1
-        trace("backtrack", current, route, current_time, actions, assignment, "Khong con gia tri hop le; quay lui.", load)
+        trace(
+            "backtrack",
+            current,
+            route,
+            current_time,
+            actions,
+            assignment,
+            f"Mien cua X{len(assignment) + 1} da thu het nhung khong dan toi nghiem; quay lui ve bien truoc.",
+            load,
+            picked,
+            delivered,
+            result_label="Quay lui",
+            constraint_checks=["Khong con gia tri trong mien tao duoc loi giai hoan chinh."],
+        )
         return None
 
     solution = backtrack(scenario.depot_id, 0.0, 0.0, set(), set(), [scenario.depot_id], [])
