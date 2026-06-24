@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+*.sqlite
+
+# Local runtime output
+*.log
+output/
+test-results/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.vercel/
