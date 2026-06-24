@@ -11,6 +11,8 @@ Ban hien tai tap trung vao demo bao ve do an: dang nhap, admin bat/tat thuat toa
 
 Preview URL: https://find-your-path-2oy6kklc9-ducphat1509-beeps-projects.vercel.app
 
+Trang preview hien dang nam sau Vercel Deployment Protection, nen nguoi mo can co quyen Vercel/team. Khi can link public cho hoi dong hoac coworker, hay tat protection cho project preview hoac tao production deployment public.
+
 Ghi chu: ban deploy gan nhat chi dung SQLite tam thoi cho demo/van dap AI. Du lieu tren Vercel co the reset khi cold start, redeploy hoac function instance thay doi.
 
 ## Kien truc

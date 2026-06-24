@@ -15,7 +15,7 @@ powershell -ExecutionPolicy Bypass -File .\run_app.ps1
 URL local mặc định: `http://127.0.0.1:8000`  
 URL Vercel preview: `https://find-your-path-2oy6kklc9-ducphat1509-beeps-projects.vercel.app`
 
-Nếu dùng Vercel preview, lưu ý SQLite chỉ là dữ liệu demo tạm thời. Nếu dữ liệu đơn hàng thay đổi hoặc reset sau một lần mở lại app, hãy đăng nhập lại và dùng dữ liệu seed mới.
+Nếu dùng Vercel preview, người mở có thể cần quyền Vercel/team vì Deployment Protection đang bật. SQLite trên preview chỉ là dữ liệu demo tạm thời. Nếu dữ liệu đơn hàng thay đổi hoặc reset sau một lần mở lại app, hãy đăng nhập lại và dùng dữ liệu seed mới.
 
 ## Luồng trình bày 5-7 phút
 
