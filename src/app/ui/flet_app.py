@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import asyncio
 from typing import Any
@@ -42,6 +43,7 @@ from app.ui.components import dropdown, metric_value, outline_button, panel, pil
 from app.ui.state import ComparisonRow, FletState
 from app.ui.theme import (
     ALGORITHM_GROUPS,
+    ALGORITHM_MAP_STYLES,
     BG,
     CYAN,
     GREEN,
@@ -59,6 +61,18 @@ from app.ui.theme import (
     WORKSPACE_COPY,
     YELLOW,
 )
+
+MAP_ICON_BASE = "/assets/map-icons"
+MAP_ICONS = {
+    "shipper_bike": f"{MAP_ICON_BASE}/shipper-bike.png",
+    "transport_truck": f"{MAP_ICON_BASE}/transport-truck.png",
+    "transport_van": f"{MAP_ICON_BASE}/transport-van.png",
+    "pickup_food": f"{MAP_ICON_BASE}/pickup-food.png",
+    "pickup_drink": f"{MAP_ICON_BASE}/pickup-drink.png",
+    "pickup_cargo": f"{MAP_ICON_BASE}/pickup-cargo.png",
+    "pickup_parcel": f"{MAP_ICON_BASE}/pickup-parcel.png",
+    "dropoff_pin": f"{MAP_ICON_BASE}/dropoff-pin.png",
+}
 
 
 class FletDashboard:
@@ -306,9 +320,15 @@ class FletDashboard:
                 return
             self.stop_auto_run()
             self.stop_shipper_playback()
+            if self.state.workspace == "defense":
+                self.state.group_trace_indexes[self.state.group] = self.state.trace_index
             self.state.workspace = workspace
-            self.state.result = None
-            self.state.trace_index = 0
+            if workspace == "defense":
+                self.state.result = self.state.group_results.get(self.state.group)
+                self.state.trace_index = self.state.group_trace_indexes.get(self.state.group, 0)
+            else:
+                self.state.result = None
+                self.state.trace_index = 0
             if self.state.workspace == "admin":
                 self.state.permissions = list_permissions()
             if self.state.workspace == "shipper":
@@ -722,10 +742,11 @@ class FletDashboard:
 
         def set_group(group_key: str) -> None:
             self.stop_auto_run()
+            self.state.group_trace_indexes[self.state.group] = self.state.trace_index
             self.state.group = group_key
             self.state.algorithm = self.first_allowed_algorithm(group_key)
-            self.state.result = None
-            self.state.trace_index = 0
+            self.state.result = self.state.group_results.get(group_key)
+            self.state.trace_index = self.state.group_trace_indexes.get(group_key, 0)
             self.render()
 
         def set_algorithm(algorithm: str) -> None:
@@ -734,6 +755,8 @@ class FletDashboard:
                 return
             self.stop_auto_run()
             self.state.algorithm = algorithm
+            self.state.group_results.pop(self.state.group, None)
+            self.state.group_trace_indexes.pop(self.state.group, None)
             self.state.result = None
             self.state.trace_index = 0
             self.render()
@@ -939,6 +962,9 @@ class FletDashboard:
     def set_result(self, label: str, mode: str, response: AlgorithmResponse) -> None:
         self.state.result = response
         self.state.trace_index = 0
+        if self.state.workspace == "defense":
+            self.state.group_results[self.state.group] = response
+            self.state.group_trace_indexes[self.state.group] = 0
         self.stop_auto_run()
         self.stop_shipper_playback()
         self.state.comparisons = [ComparisonRow(label, mode, response), *self.state.comparisons][:8]
@@ -953,6 +979,8 @@ class FletDashboard:
         if not result or not result.traceSteps:
             return
         self.state.trace_index = max(0, min(len(result.traceSteps) - 1, index))
+        if self.state.workspace == "defense":
+            self.state.group_trace_indexes[self.state.group] = self.state.trace_index
         self.render()
 
     def step_trace(self, delta: int = 1) -> None:
@@ -963,6 +991,8 @@ class FletDashboard:
         self.state.trace_index = next_index
         if next_index >= len(result.traceSteps) - 1:
             self.stop_auto_run()
+        if self.state.workspace == "defense":
+            self.state.group_trace_indexes[self.state.group] = self.state.trace_index
         self.render()
 
     def start_auto_run(self) -> None:
@@ -988,6 +1018,8 @@ class FletDashboard:
             if not self.state.auto_run or token != self.state.auto_run_token:
                 return
             self.state.trace_index += 1
+            if self.state.workspace == "defense":
+                self.state.group_trace_indexes[self.state.group] = self.state.trace_index
             if self.state.trace_index >= len(result.traceSteps) - 1:
                 self.stop_auto_run()
             self.render()
@@ -1047,6 +1079,44 @@ class FletDashboard:
             if end_index == playback_index and leg.get("kind") in {"serve_order", "warehouse_delivery"}:
                 return leg
         return None
+
+    def route_leg_at_playback_index(self, playback_index: int) -> dict[str, Any] | None:
+        if not self.state.result:
+            return None
+        end_index = 0
+        previous_leg = None
+        for leg in self.state.result.metrics.get("routeLegs", []):
+            segment_count = max(0, len(leg.get("path", [])) - 1)
+            start_index = end_index
+            end_index += segment_count
+            if segment_count and start_index <= playback_index <= end_index:
+                return leg
+            previous_leg = leg
+        return previous_leg
+
+    def order_for_route_leg(self, leg: dict[str, Any] | None):
+        if not leg:
+            return None
+        order_id = str(leg.get("orderId", ""))
+        return next((item for item in self.state.accepted_orders if item.id == order_id), None)
+
+    def pickup_icon_src(self, category: str | None) -> str:
+        normalized = (category or "").lower()
+        if normalized in {"drink", "beverage", "water"}:
+            return MAP_ICONS["pickup_drink"]
+        if normalized == "food":
+            return MAP_ICONS["pickup_food"]
+        if normalized == "parcel":
+            return MAP_ICONS["pickup_parcel"]
+        if normalized == "grocery":
+            return MAP_ICONS["pickup_cargo"]
+        return MAP_ICONS["pickup_cargo"]
+
+    def vehicle_icon_src(self, leg: dict[str, Any] | None) -> str:
+        kind = str((leg or {}).get("kind", ""))
+        if kind in {"warehouse_delivery", "transport_to_warehouse"}:
+            return MAP_ICONS["transport_truck"]
+        return MAP_ICONS["shipper_bike"]
 
     def maybe_prompt_delivery_confirmation(self) -> bool:
         leg = self.delivery_leg_at_playback_index(self.state.shipper_playback_index)
@@ -1171,16 +1241,49 @@ class FletDashboard:
         self.stop_shipper_playback()
         self.render()
 
+    def current_map_group(self) -> str:
+        return "shipper" if self.state.workspace == "shipper" else self.state.group
+
     def map_url(self) -> str:
-        params: dict[str, str] = {}
+        params: dict[str, str] = {"group": self.current_map_group()}
+        if self.state.algorithm:
+            params["algorithm"] = self.state.algorithm
         if self.state.result and self.state.result.path:
             params["path"] = ",".join(self.state.result.path)
+            route_legs = self.state.result.metrics.get("routeLegs", [])
+            if route_legs:
+                params["legs"] = json.dumps(route_legs, ensure_ascii=False, separators=(",", ":"))
+                params["active"] = str(self.active_route_leg_index())
+                params["orders"] = json.dumps(
+                    [
+                        {
+                            "id": order.id,
+                            "category": order.category,
+                            "pickupNodeId": order.pickupNodeId,
+                            "dropoffNodeId": order.dropoffNodeId,
+                        }
+                        for order in self.state.accepted_orders
+                    ],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
         if self.state.start_id:
             params["start"] = self.state.start_id
         if self.state.goal_id:
             params["goal"] = self.state.goal_id
         query = urlencode(params)
         return f"/map?{query}" if query else "/map"
+
+    def active_route_leg_index(self) -> int:
+        if not self.state.result:
+            return 0
+        route_legs = self.state.result.metrics.get("routeLegs", [])
+        end_index = 0
+        for index, leg in enumerate(route_legs):
+            end_index += max(0, len(leg.get("path", [])) - 1)
+            if self.state.shipper_playback_index <= end_index:
+                return index
+        return max(0, len(route_legs) - 1)
 
     def open_map(self, _: Any = None) -> None:
         self.page.launch_url(self.map_url(), web_window_name="_self")
@@ -1290,6 +1393,8 @@ class FletDashboard:
     def graph_panel(self) -> ft.Control:
         scenario = self.visible_scenario()
         result = self.state.result
+        map_group = self.current_map_group()
+        map_style = ALGORITHM_MAP_STYLES.get(map_group, ALGORITHM_MAP_STYLES["informed"])
         active_step = self.active_step()
         full_path = result.path if result else []
         is_shipper_playback = self.state.workspace == "shipper" and len(full_path) > 1
@@ -1321,6 +1426,7 @@ class FletDashboard:
             visited = set(result.visitedNodes if result else [])
             frontier = set()
             current = full_path[playback_index] if is_shipper_playback else None
+        active_delivery_leg = self.route_leg_at_playback_index(playback_index) if is_shipper_playback else None
         xs = [node.x for node in scenario.nodes]
         ys = [node.y for node in scenario.nodes]
         min_x, max_x = min(xs), max(xs)
@@ -1350,12 +1456,12 @@ class FletDashboard:
         visible_route_edges = list(zip(route_source, route_source[1:]))
         for index, (source, target) in enumerate(visible_route_edges):
             if is_debug_trace:
-                color, width = GREEN, 6
+                color, width = map_style["route"], 6
             elif is_shipper_playback:
-                color = GREEN if index < playback_index else YELLOW if index == playback_index else "#304C43"
+                color = map_style["route"] if index < playback_index else map_style["frontier"] if index == playback_index else "#304C43"
                 width = 6 if index <= playback_index else 3
             else:
-                color, width = GREEN, 6
+                color, width = map_style["route"], 6
             route_lines.append(
                 fmap.PolylineMarker(
                     coordinates=[coordinates(source), coordinates(target)],
@@ -1374,23 +1480,41 @@ class FletDashboard:
             preview_lines.append(
                 fmap.PolylineMarker(
                     coordinates=[coordinates(source), coordinates(target)],
-                    color="#8FE3B6",
+                    color=map_style["preview"],
                     stroke_width=2.5,
                     border_stroke_width=0,
                 )
             )
 
         markers = []
+
+        def image_marker(node_id: str | None, src: str, tooltip: str, size: int = 48) -> None:
+            if not node_id or not any(node.id == node_id for node in scenario.nodes):
+                return
+            markers.append(
+                fmap.Marker(
+                    coordinates=coordinates(node_id),
+                    width=size,
+                    height=size,
+                    content=ft.Container(
+                        content=ft.Image(src=src, fit=ft.ImageFit.CONTAIN),
+                        width=size,
+                        height=size,
+                        tooltip=tooltip,
+                    ),
+                )
+            )
+
         for node in scenario.nodes:
             active = node.id == current or node.id in frontier or node.id in path or node.id in visited
             color = (
-                RED
+                map_style["current"]
                 if node.id == current
-                else YELLOW
+                else map_style["frontier"]
                 if node.id in frontier
-                else GREEN
+                else map_style["route"]
                 if node.id in path
-                else CYAN
+                else map_style["visited"]
                 if node.id in visited
                 else "#18212B"
             )
@@ -1412,6 +1536,29 @@ class FletDashboard:
                     ),
                 )
             )
+
+        if active_delivery_leg:
+            order = self.order_for_route_leg(active_delivery_leg)
+            kind = str(active_delivery_leg.get("kind", ""))
+            pickup_node_id = (
+                order.pickupNodeId
+                if order
+                else str(active_delivery_leg.get("from") or active_delivery_leg.get("to") or "")
+            )
+            dropoff_node_id = (
+                order.dropoffNodeId
+                if order
+                else str(active_delivery_leg.get("to") or "")
+            )
+            category = order.category if order else ""
+            if kind == "approach_pickup":
+                image_marker(pickup_node_id or active_delivery_leg.get("to"), self.pickup_icon_src(category), "Diem nhan hang", 44)
+            elif kind == "serve_order":
+                image_marker(pickup_node_id or active_delivery_leg.get("from"), self.pickup_icon_src(category), "Diem nhan hang", 44)
+                image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Diem giao hang", 44)
+            elif kind in {"warehouse_delivery", "transport_to_warehouse"}:
+                image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Diem giao hang", 44)
+            image_marker(current or str(active_delivery_leg.get("from") or ""), self.vehicle_icon_src(active_delivery_leg), "Shipper / xe van chuyen", 58)
 
         map_layers = []
         if self.state.map_tiles_enabled:
@@ -1486,7 +1633,7 @@ class FletDashboard:
             top=12,
         )
         map_mode_badge = ft.Container(
-            content=pill("OSM MAP" if self.state.map_tiles_enabled else "DEBUG MAP", "green" if self.state.map_tiles_enabled else "yellow"),
+            content=pill(map_style["badge"] if self.state.map_tiles_enabled else "DEBUG MAP", "green" if self.state.map_tiles_enabled else "yellow"),
             left=12,
             top=12,
         )
@@ -1500,20 +1647,21 @@ class FletDashboard:
         )
         legend = ft.Row(
             [
-                self.legend_item("PATH", GREEN),
-                self.legend_item("VISITED", CYAN),
-                self.legend_item("FRONTIER", YELLOW),
-                self.legend_item("CURRENT", RED),
+                self.legend_item("PATH", map_style["route"]),
+                self.legend_item("VISITED", map_style["visited"]),
+                self.legend_item("FRONTIER", map_style["frontier"]),
+                self.legend_item("CURRENT", map_style["current"]),
             ],
             spacing=12,
             wrap=True,
         )
+        group_label = ALGORITHM_GROUPS.get(map_group, {}).get("label", "Shipper Dispatch")
         return panel(
             ft.Column(
                 [
                     ft.Row(
                         [
-                            text("BAN DO / HCM CITY", 16, TEXT, ft.FontWeight.W_900),
+                            text(f"BAN DO / {group_label.upper()}", 16, TEXT, ft.FontWeight.W_900),
                             ft.Row(
                                 [
                                     legend,

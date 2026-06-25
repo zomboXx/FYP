@@ -139,6 +139,10 @@ def test_csp_solver_handles_valid_and_infeasible_order_sets():
     assert valid["traceSteps"][0].debugData["selectedVariable"].startswith("X1")
     assert valid["traceSteps"][0].debugData["domainValues"]
     assert any(step.phase == "try_value" for step in valid["traceSteps"])
+    first_try = next(step for step in valid["traceSteps"] if step.phase == "try_value")
+    first_move = next(step for step in valid["traceSteps"] if step.phase == "move_edge")
+    assert first_try.candidatePath == [scenario.depot_id]
+    assert len(first_move.previewPath) == 2
     assert infeasible["valid"] is False
     assert any(step.phase == "forward_prune" for step in infeasible["traceSteps"])
 

@@ -17,6 +17,8 @@ class FletState:
     user: UserPublic | None = None
     scenario: Scenario | None = None
     result: AlgorithmResponse | None = None
+    group_results: dict[str, AlgorithmResponse] = field(default_factory=dict)
+    group_trace_indexes: dict[str, int] = field(default_factory=dict)
     comparisons: list[ComparisonRow] = field(default_factory=list)
     workspace: str = "defense"
     group: str = "informed"

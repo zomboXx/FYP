@@ -4,6 +4,8 @@ from app.algorithms.graph import BLOCKED_COST, find_edge, path_time
 from app.algorithms.search import astar
 from app.models.schemas import Order, Scenario, TraceStep
 
+DEBUG_TRACE_LIMIT = 300
+
 
 def check_route_constraints(scenario: Scenario, route: list[str], capacity_kg: float | None = None, debug: bool = False) -> dict:
     capacity = capacity_kg or scenario.capacity_kg
@@ -98,10 +100,12 @@ def solve_delivery_csp(
     capacity_kg: float | None = None,
     debug: bool = False,
 ) -> dict:
-    orders = [order for order in scenario.orders if order_ids is None or order.id in set(order_ids)]
+    selected_order_ids = set(order_ids) if order_ids is not None else None
+    orders = [order for order in scenario.orders if selected_order_ids is None or order.id in selected_order_ids]
     capacity = capacity_kg or scenario.capacity_kg
     order_by_id = {order.id: order for order in orders}
     trace_steps: list[TraceStep] = []
+    skipped_trace_steps = 0
     expanded_states = 0
     backtracks = 0
 
@@ -162,6 +166,23 @@ def solve_delivery_csp(
                 return False
         return True
 
+    def impossible_from_start() -> list[str]:
+        issues = []
+        for order in orders:
+            pickup = order.pickup_node_id or scenario.depot_id
+            dropoff = order.dropoff_node_id or order.node_id
+            if order.demand_kg > capacity:
+                issues.append(f"{order.id}: demand {order.demand_kg:.1f}kg vuot suc chua {capacity:.1f}kg.")
+                continue
+            _, to_pickup = travel(scenario.depot_id, pickup)
+            _, to_dropoff = travel(pickup, dropoff)
+            earliest_dropoff = max(to_pickup, order.ready_min) + to_dropoff
+            if to_pickup >= BLOCKED_COST or to_dropoff >= BLOCKED_COST:
+                issues.append(f"{order.id}: khong co duong hop le tu depot qua pickup den dropoff.")
+            elif earliest_dropoff > order.due_min:
+                issues.append(f"{order.id}: som nhat den phut {earliest_dropoff:.1f}, tre deadline {order.due_min}.")
+        return issues
+
     def trace(
         phase: str,
         current: str,
@@ -176,8 +197,13 @@ def solve_delivery_csp(
         tried_value: str | None = None,
         result_label: str = "Dang xet",
         constraint_checks: list[str] | None = None,
+        preview_path: list[str] | None = None,
     ) -> None:
+        nonlocal skipped_trace_steps
         if not debug:
+            return
+        if len(trace_steps) >= DEBUG_TRACE_LIMIT:
+            skipped_trace_steps += 1
             return
         selected_variable = "Hoan tat assignment" if phase == "csp_solution" else f"X{len(assignment) + 1}: hanh dong tiep theo"
         domain = domain_labels(actions)
@@ -189,6 +215,7 @@ def solve_delivery_csp(
                 frontier=domain,
                 visitedNodes=list(dict.fromkeys(route)),
                 candidatePath=route[:],
+                previewPath=preview_path or [],
                 costSoFar=round(current_time, 2),
                 heuristic=float(len(domain)),
                 decisionReason=reason,
@@ -212,6 +239,37 @@ def solve_delivery_csp(
                 },
             )
         )
+
+    initial_issues = impossible_from_start() if selected_order_ids is None or len(orders) > 4 else []
+    if initial_issues:
+        trace(
+            "initial_infeasible",
+            scenario.depot_id,
+            [scenario.depot_id],
+            0.0,
+            available_actions(set(), set(), 0.0),
+            [],
+            "Kiem tra kha thi ban dau thay co don khong the giao dung han ngay ca khi xu ly rieng le.",
+            0.0,
+            set(),
+            set(),
+            result_label="Vo nghiem",
+            constraint_checks=initial_issues,
+        )
+        return {
+            "valid": False,
+            "path": [],
+            "assignment": [],
+            "totalMinutes": None,
+            "servedOrders": 0,
+            "capacityKg": capacity,
+            "expandedStates": expanded_states,
+            "backtracks": backtracks,
+            "algorithm": algorithm,
+            "traceSteps": trace_steps,
+            "traceTruncated": skipped_trace_steps > 0,
+            "skippedTraceSteps": skipped_trace_steps,
+        }
 
     def backtrack(
         current: str,
@@ -302,24 +360,67 @@ def solve_delivery_csp(
             next_delivered = delivered | {order_id} if action == "dropoff" else set(delivered)
             next_route = route + (segment[1:] if route else segment)
             next_assignment = assignment + [f"{action}:{order_id}@{target}"]
+            action_text = action_label(order_id, action)
             trace(
                 "try_value",
+                current,
+                route,
+                current_time,
+                actions,
+                assignment,
+                f"Thu gan {action_text} cho X{len(assignment) + 1}; dung A* de kiem tra duong toi node muc tieu truoc khi cap nhat assignment.",
+                load,
+                picked,
+                delivered,
+                tried_value=action_text,
+                result_label="Thu gia tri",
+                constraint_checks=[
+                    f"A* de xuat duong {' -> '.join(segment)} voi {travel_minutes:.1f} phut.",
+                    "Chua cap nhat pickup/dropoff cho den khi di het doan nay.",
+                ],
+                preview_path=[current],
+            )
+            for segment_index in range(1, len(segment)):
+                travel_prefix = route + segment[1 : segment_index + 1] if route else segment[: segment_index + 1]
+                prefix_minutes = path_time(scenario, segment[: segment_index + 1])
+                trace(
+                    "move_edge",
+                    segment[segment_index],
+                    travel_prefix,
+                    current_time + prefix_minutes,
+                    actions,
+                    assignment,
+                    f"Di chuyen {segment[segment_index - 1]} -> {segment[segment_index]} de thuc hien {action_text}.",
+                    load,
+                    picked,
+                    delivered,
+                    tried_value=action_text,
+                    result_label="Di chuyen",
+                    constraint_checks=[
+                        f"Canh {segment[segment_index - 1]}->{segment[segment_index]} nam tren duong A* da chon.",
+                        "Assignment va tai trong giu nguyen trong luc di chuyen.",
+                    ],
+                    preview_path=segment[segment_index - 1 : segment_index + 1],
+                )
+            trace(
+                "commit_value",
                 target,
                 next_route,
                 next_time,
                 actions,
                 next_assignment,
-                f"Gan {action_label(order_id, action)} cho X{len(assignment) + 1}; cap nhat route, tai trong va thoi gian.",
+                f"Hoan tat {action_text} cho X{len(assignment) + 1}; cap nhat route, tai trong va thoi gian.",
                 next_load,
                 next_picked,
                 next_delivered,
-                tried_value=action_label(order_id, action),
+                tried_value=action_text,
                 result_label="Chap nhan tam thoi",
                 constraint_checks=[
                     f"Duong di {current}->{target}: {travel_minutes:.1f} phut.",
                     f"Tai trong sau buoc nay: {next_load:.1f}/{capacity:.1f} kg.",
                     "Thu tu pickup/dropoff hop le.",
                 ],
+                preview_path=segment[-2:] if len(segment) >= 2 else [target],
             )
             if algorithm == "forward_checking" and not forward_feasible(target, next_time, next_picked, next_delivered):
                 trace(
@@ -373,4 +474,6 @@ def solve_delivery_csp(
         "backtracks": backtracks,
         "algorithm": algorithm,
         "traceSteps": trace_steps,
+        "traceTruncated": skipped_trace_steps > 0,
+        "skippedTraceSteps": skipped_trace_steps,
     }

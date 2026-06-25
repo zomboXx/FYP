@@ -1,29 +1,60 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.data.scenario import load_osm_cached_scenario
+from app.ui.theme import ALGORITHM_GROUPS, ALGORITHM_MAP_STYLES
+
+MAP_ICON_DIR = Path(__file__).resolve().parent / "assets" / "map-icons"
 
 
 def register_map_ui(app: FastAPI) -> None:
+    if MAP_ICON_DIR.exists():
+        app.mount("/assets/map-icons", StaticFiles(directory=MAP_ICON_DIR), name="map-icons")
+
     @app.get("/map", response_class=HTMLResponse)
     def map_view(
         path: str = Query(default="", description="Comma-separated node IDs to highlight."),
         start: str | None = Query(default=None),
         goal: str | None = Query(default=None),
+        legs: str = Query(default="", description="JSON route legs for temporary delivery markers."),
+        orders: str = Query(default="", description="JSON accepted orders for pickup/dropoff icons."),
+        active: int = Query(default=0, ge=0),
+        group: str = Query(default="informed", description="Algorithm group used to style this map."),
+        algorithm: str | None = Query(default=None),
     ) -> HTMLResponse:
         scenario = load_osm_cached_scenario()
         route = [node_id.strip() for node_id in path.split(",") if node_id.strip()]
+        map_group = group if group in ALGORITHM_MAP_STYLES else "informed"
         payload = {
             "scenario": scenario.model_dump(),
             "route": route,
             "start": start,
             "goal": goal,
+            "routeLegs": _json_list_param(legs),
+            "orders": _json_list_param(orders),
+            "activeLeg": active,
+            "mapGroup": map_group,
+            "algorithm": algorithm,
+            "mapStyle": ALGORITHM_MAP_STYLES[map_group],
+            "groupLabel": ALGORITHM_GROUPS.get(map_group, {}).get("label", "Shipper Dispatch"),
         }
         return HTMLResponse(_render_map_html(payload))
+
+
+def _json_list_param(value: str) -> list[dict]:
+    if not value:
+        return []
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return decoded if isinstance(decoded, list) else []
 
 
 def _render_map_html(payload: dict) -> str:
@@ -164,6 +195,26 @@ def _render_map_html(payload: dict) -> str:
       font-size: 10px;
       font-weight: 900;
     }}
+    .delivery-playback {{
+      display: none;
+      gap: 8px;
+      margin-top: 10px;
+    }}
+    .delivery-playback.active {{
+      display: grid;
+    }}
+    .delivery-playback .row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }}
+    #leg-status {{
+      color: #facc15;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.4;
+    }}
     .node-editor {{
       display: grid;
       gap: 8px;
@@ -223,7 +274,7 @@ def _render_map_html(payload: dict) -> str:
   <div id="map"></div>
   <section class="hud">
     <header>
-      <h1>Find Your Path / Live Map</h1>
+      <h1 id="map-title">Find Your Path / Live Map</h1>
       <span class="pill" id="map-mode">OSM + Leaflet</span>
     </header>
     <div class="body">
@@ -233,6 +284,14 @@ def _render_map_html(payload: dict) -> str:
         <button id="toggle-tiles">Off OSM</button>
         <button id="copy-coords">Copy coords</button>
         <button id="clear-manual">Clear manual</button>
+      </div>
+      <div class="delivery-playback" id="delivery-playback">
+        <div id="leg-status">Delivery leg: -</div>
+        <div class="row">
+          <button id="prev-leg">Prev leg</button>
+          <button class="primary" id="next-leg">Next leg</button>
+          <button id="auto-leg">Auto</button>
+        </div>
       </div>
       <div id="manual-list">Manual nodes: chua co</div>
     </div>
@@ -245,6 +304,15 @@ def _render_map_html(payload: dict) -> str:
     const routeSet = new Set(route);
     const start = payload.start;
     const goal = payload.goal;
+    const mapGroup = payload.mapGroup || "informed";
+    const mapStyle = payload.mapStyle || {{}};
+    const groupLabel = payload.groupLabel || "Live Map";
+    const algorithmLabel = payload.algorithm ? ` / ${{String(payload.algorithm).toUpperCase()}}` : "";
+    const routeLegs = payload.routeLegs || [];
+    const orderItems = payload.orders || [];
+    const orderById = new Map(orderItems.map((order) => [String(order.id), order]));
+    let activeLegIndex = Math.max(0, Math.min(routeLegs.length - 1, Number(payload.activeLeg || 0)));
+    let legTimer = null;
     const nodes = scenario.nodes || [];
     const edges = scenario.edges || [];
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -260,6 +328,18 @@ def _render_map_html(payload: dict) -> str:
       minLng: 106.575,
       maxLng: 106.845,
     }};
+    const iconAssets = {{
+      shipperBike: "/assets/map-icons/shipper-bike.png",
+      transportTruck: "/assets/map-icons/transport-truck.png",
+      transportVan: "/assets/map-icons/transport-van.png",
+      pickupFood: "/assets/map-icons/pickup-food.png",
+      pickupDrink: "/assets/map-icons/pickup-drink.png",
+      pickupCargo: "/assets/map-icons/pickup-cargo.png",
+      pickupParcel: "/assets/map-icons/pickup-parcel.png",
+      dropoffPin: "/assets/map-icons/dropoff-pin.png",
+    }};
+    document.getElementById("map-title").textContent = `Find Your Path / ${{groupLabel}}${{algorithmLabel}}`;
+    document.getElementById("map-mode").textContent = mapStyle.badge || "OSM + Leaflet";
 
     function scale(value, fromMin, fromMax, toMin, toMax) {{
       if (!Number.isFinite(value) || fromMax === fromMin) return (toMin + toMax) / 2;
@@ -283,12 +363,23 @@ def _render_map_html(payload: dict) -> str:
       else if (routeSet.has(node.id)) classes.push("node-path");
       else if (node.type === "depot") classes.push("node-depot");
       else if (node.type === "order") classes.push("node-order");
+      const style = nodeBadgeStyle(node);
       return L.divIcon({{
         className: "",
-        html: `<span class="${{classes.join(" ")}}">${{node.id}}</span>`,
+        html: `<span class="${{classes.join(" ")}}" style="${{style}}">${{node.id}}</span>`,
         iconSize: [28, 28],
         iconAnchor: [14, 14],
       }});
+    }}
+
+    function nodeBadgeStyle(node) {{
+      if (node.id === start || node.id === goal) {{
+        return `background:${{mapStyle.current || "#ff4d57"}};border-color:${{mapStyle.current || "#ff4d57"}};`;
+      }}
+      if (routeSet.has(node.id)) {{
+        return `background:${{mapStyle.route || "#23d179"}};border-color:${{mapStyle.route || "#23d179"}};`;
+      }}
+      return "";
     }}
 
     const map = L.map("map", {{ zoomControl: true }});
@@ -301,6 +392,7 @@ def _render_map_html(payload: dict) -> str:
 
     const graphLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
+    const temporaryDeliveryLayer = L.layerGroup().addTo(map);
     const manualLayer = L.layerGroup().addTo(map);
     const allBounds = [];
 
@@ -328,11 +420,89 @@ def _render_map_html(payload: dict) -> str:
     const routeCoords = route.map((nodeId) => byId.get(nodeId)).filter(Boolean).map(nodeLatLng);
     if (routeCoords.length > 1) {{
       L.polyline(routeCoords, {{
-        color: "#23d179",
+        color: mapStyle.route || "#23d179",
         weight: 6,
         opacity: 0.95,
         lineJoin: "round",
       }}).bindTooltip(`Route: ${{route.join(" -> ")}}`).addTo(routeLayer);
+    }}
+
+    function imageIcon(src, size = 44) {{
+      return L.icon({{
+        iconUrl: src,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
+        popupAnchor: [0, -size / 2],
+      }});
+    }}
+
+    function pickupAsset(category) {{
+      const normalized = String(category || "").toLowerCase();
+      if (["drink", "beverage", "water"].includes(normalized)) return iconAssets.pickupDrink;
+      if (normalized === "food") return iconAssets.pickupFood;
+      if (normalized === "parcel") return iconAssets.pickupParcel;
+      if (normalized === "grocery") return iconAssets.pickupCargo;
+      return iconAssets.pickupCargo;
+    }}
+
+    function vehicleAsset(leg) {{
+      const kind = String(leg.kind || "");
+      if (kind === "warehouse_delivery" || kind === "transport_to_warehouse") return iconAssets.transportTruck;
+      if (kind === "approach_pickup") return iconAssets.shipperBike;
+      return iconAssets.shipperBike;
+    }}
+
+    function addTemporaryMarker(nodeId, src, label, size = 46) {{
+      const node = byId.get(nodeId);
+      if (!node) return;
+      const latLng = nodeLatLng(node);
+      L.marker(latLng, {{ icon: imageIcon(src, size), title: label }})
+        .bindPopup(`<strong>${{escapeHtml(label)}}</strong><br/>${{escapeHtml(node.id)}} - ${{escapeHtml(node.name)}}`)
+        .addTo(temporaryDeliveryLayer);
+    }}
+
+    function legNodeIds(leg, order) {{
+      const pickup = order.pickupNodeId || order.pickup_node_id || leg.from;
+      const dropoff = order.dropoffNodeId || order.dropoff_node_id || leg.to;
+      return {{ pickup, dropoff }};
+    }}
+
+    function renderActiveLeg() {{
+      temporaryDeliveryLayer.clearLayers();
+      const playback = document.getElementById("delivery-playback");
+      const status = document.getElementById("leg-status");
+      if (!routeLegs.length) {{
+        playback.classList.remove("active");
+        return;
+      }}
+      playback.classList.add("active");
+      activeLegIndex = Math.max(0, Math.min(routeLegs.length - 1, activeLegIndex));
+      const leg = routeLegs[activeLegIndex];
+      const order = orderById.get(String(leg.orderId || "")) || {{}};
+      const {{ pickup, dropoff }} = legNodeIds(leg, order);
+      const labelOrder = leg.orderId ? `Don ${{leg.orderId}}` : "Delivery leg";
+      status.textContent = `${{activeLegIndex + 1}}/${{routeLegs.length}} - ${{labelOrder}}: ${{leg.from}} -> ${{leg.to}}`;
+
+      if (leg.path && leg.path.length > 1) {{
+        const coords = leg.path.map((nodeId) => byId.get(nodeId)).filter(Boolean).map(nodeLatLng);
+        L.polyline(coords, {{
+          color: mapStyle.frontier || "#facc15",
+          weight: 7,
+          opacity: 0.9,
+          lineJoin: "round",
+        }}).addTo(temporaryDeliveryLayer);
+      }}
+
+      const kind = String(leg.kind || "");
+      addTemporaryMarker(leg.from, vehicleAsset(leg), kind === "warehouse_delivery" ? "Xe van chuyen" : "Shipper", 54);
+      if (kind === "approach_pickup") {{
+        addTemporaryMarker(pickup || leg.to, pickupAsset(order.category), "Diem nhan hang", 46);
+      }} else if (kind === "serve_order") {{
+        addTemporaryMarker(pickup, pickupAsset(order.category), "Diem nhan hang", 46);
+        addTemporaryMarker(dropoff, iconAssets.dropoffPin, "Diem giao hang", 46);
+      }} else if (kind === "warehouse_delivery" || kind === "transport_to_warehouse") {{
+        addTemporaryMarker(dropoff || leg.to, iconAssets.dropoffPin, "Diem giao hang", 46);
+      }}
     }}
 
     function fitRoute() {{
@@ -344,6 +514,7 @@ def _render_map_html(payload: dict) -> str:
       }}
     }}
     fitRoute();
+    renderActiveLeg();
 
     const manualNodes = [];
     let manualLine = null;
@@ -515,7 +686,7 @@ def _render_map_html(payload: dict) -> str:
       if (tilesEnabled) {{
         tileLayer.addTo(map);
         document.body.classList.remove("debug-map");
-        mode.textContent = "OSM + Leaflet";
+        mode.textContent = mapStyle.badge || "OSM + Leaflet";
         mode.classList.remove("debug");
         toggle.textContent = "Off OSM";
       }} else {{
@@ -541,6 +712,28 @@ def _render_map_html(payload: dict) -> str:
       }} catch {{
         manualList.textContent = text || "[]";
       }}
+    }});
+    document.getElementById("prev-leg").addEventListener("click", () => {{
+      activeLegIndex = Math.max(0, activeLegIndex - 1);
+      renderActiveLeg();
+    }});
+    document.getElementById("next-leg").addEventListener("click", () => {{
+      activeLegIndex = routeLegs.length ? (activeLegIndex + 1) % routeLegs.length : 0;
+      renderActiveLeg();
+    }});
+    document.getElementById("auto-leg").addEventListener("click", () => {{
+      const button = document.getElementById("auto-leg");
+      if (legTimer) {{
+        window.clearInterval(legTimer);
+        legTimer = null;
+        button.textContent = "Auto";
+        return;
+      }}
+      button.textContent = "Stop";
+      legTimer = window.setInterval(() => {{
+        activeLegIndex = routeLegs.length ? (activeLegIndex + 1) % routeLegs.length : 0;
+        renderActiveLeg();
+      }}, 1200);
     }});
   </script>
 </body>

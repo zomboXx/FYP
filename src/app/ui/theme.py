@@ -67,6 +67,65 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
     },
 }
 
+ALGORITHM_MAP_STYLES: dict[str, dict[str, str]] = {
+    "uninformed": {
+        "route": "#23D179",
+        "preview": "#8FE3B6",
+        "visited": "#24C8E8",
+        "frontier": "#FACC15",
+        "current": "#FF4D57",
+        "badge": "UNINFORMED MAP",
+    },
+    "informed": {
+        "route": "#24C8E8",
+        "preview": "#9BE7F6",
+        "visited": "#23D179",
+        "frontier": "#FACC15",
+        "current": "#FF4D57",
+        "badge": "INFORMED MAP",
+    },
+    "local_search": {
+        "route": "#FACC15",
+        "preview": "#FFE889",
+        "visited": "#24C8E8",
+        "frontier": "#23D179",
+        "current": "#FF4D57",
+        "badge": "LOCAL MAP",
+    },
+    "complex": {
+        "route": "#B78CFF",
+        "preview": "#D3BEFF",
+        "visited": "#24C8E8",
+        "frontier": "#FACC15",
+        "current": "#FF4D57",
+        "badge": "COMPLEX MAP",
+    },
+    "csp": {
+        "route": "#FB7185",
+        "preview": "#FDA4AF",
+        "visited": "#24C8E8",
+        "frontier": "#FACC15",
+        "current": "#23D179",
+        "badge": "CSP MAP",
+    },
+    "adversarial": {
+        "route": "#F97316",
+        "preview": "#FDBA74",
+        "visited": "#24C8E8",
+        "frontier": "#FACC15",
+        "current": "#FF4D57",
+        "badge": "GAME MAP",
+    },
+    "shipper": {
+        "route": "#23D179",
+        "preview": "#8FE3B6",
+        "visited": "#24C8E8",
+        "frontier": "#FACC15",
+        "current": "#FF4D57",
+        "badge": "SHIPPER MAP",
+    },
+}
+
 
 WORKSPACE_COPY = {
     "shipper": (
