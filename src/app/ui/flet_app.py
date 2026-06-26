@@ -1393,16 +1393,25 @@ class FletDashboard:
         self.stop_shipper_playback()
         self.state.arrival_prompted_order_ids.add(order_id)
 
+        def close_dialog() -> None:
+            dialog.open = False
+            self.page.close(dialog)
+
         def postpone(_: Any = None) -> None:
             self.state.arrival_prompted_order_ids.discard(order_id)
-            self.page.close(dialog)
+            close_dialog()
+            self.page.update()
 
         def confirm(_: Any = None) -> None:
             def do_complete() -> None:
                 if not self.state.user:
                     return
                 complete_order(order_id, self.state.user)
-                self.page.close(dialog)
+                close_dialog()
+                self.state.accepted_orders = [item for item in self.state.accepted_orders if item.id != order_id]
+                self.state.orders = [item for item in self.state.orders if item.id != order_id]
+                self.state.selected_orders.discard(order_id)
+                self.state.arrival_prompted_order_ids.discard(order_id)
                 self.load_orders()
                 self.notify(f"Đơn {order_id} đã giao thành công.")
                 self.render()
