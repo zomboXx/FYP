@@ -2131,9 +2131,7 @@ class FletDashboard:
             return str(item.currentNode or "-")
 
         rows = []
-        window_start = max(0, min(self.state.trace_index - 2, max(0, len(result.traceSteps) - 6)))
-        window_end = min(len(result.traceSteps), window_start + 6)
-        for index, item in enumerate(result.traceSteps[window_start:window_end], start=window_start):
+        for index, item in enumerate(result.traceSteps):
             active = index == self.state.trace_index
             rows.append(
                 ft.Container(
@@ -2258,11 +2256,12 @@ class FletDashboard:
             wrap=True,
         )
         steps_panel = ft.Container(
-            content=ft.Column(rows[:6], spacing=8),
+            content=ft.ListView(rows, spacing=8, auto_scroll=False),
             bgcolor=INK,
             border=ft.border.all(1, LINE),
             border_radius=4,
             padding=8,
+            height=306,
             expand=True,
         )
         table_panel = ft.Container(
