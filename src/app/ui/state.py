@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.models.schemas import AlgorithmResponse, AvailableOrder, PermissionRow, Scenario, UserPublic
+from app.models.schemas import AlgorithmResponse, AvailableOrder, MapSummary, PermissionRow, Scenario, UserPublic
 
 
 @dataclass
@@ -36,6 +36,14 @@ class FletState:
     shipper_playback_auto: bool = False
     shipper_playback_token: int = 0
     map_tiles_enabled: bool = True
+    maps: list[MapSummary] = field(default_factory=list)
+    selected_map_ids: dict[str, int] = field(default_factory=dict)
+    active_map_id: int | None = None
+    map_editor_id: int | None = None
+    map_editor_name: str = ""
+    map_editor_description: str = ""
+    map_editor_group: str = "informed"
+    map_editor_is_default: bool = False
     trace_index: int = 0
     auto_run: bool = False
     auto_run_token: int = 0

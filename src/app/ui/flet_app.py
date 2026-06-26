@@ -17,6 +17,9 @@ from app.models.schemas import (
     ComplexSearchRequest,
     CspSolveRequest,
     DeliveryOptimizeRequest,
+    MapCreateRequest,
+    MapPatchRequest,
+    MapSummary,
     PathfindingRequest,
     PermissionRow,
     Scenario,
@@ -31,6 +34,7 @@ from app.services.auth_service import (
     shipper_operation_profile,
     update_permission,
 )
+from app.services.map_service import create_map, delete_map, default_map_for_group, get_map, list_maps, update_map
 from app.services.route_service import (
     optimize_delivery,
     plan_accepted_orders,
@@ -89,6 +93,8 @@ class FletDashboard:
         self.page.theme_mode = ft.ThemeMode.DARK
         self.page.on_resized = lambda _: self.render()
         self.state.scenario = load_osm_cached_scenario()
+        self.load_map_catalog()
+        self.activate_map_for_group(self.state.group)
         self.state.start_id = self.state.scenario.depot_id
         self.state.goal_id = "D1" if any(node.id == "D1" for node in self.state.scenario.nodes) else self.state.scenario.nodes[-1].id
         self.page.add(self.root)
@@ -113,6 +119,58 @@ class FletDashboard:
             self.state.error = str(exc)
             self.notify(str(exc), True)
             self.render()
+
+    def load_map_catalog(self) -> None:
+        self.state.maps = list_maps()
+
+    def sync_node_selection(self) -> None:
+        scenario = self.state.scenario
+        if not scenario or not scenario.nodes:
+            return
+        node_ids = {node.id for node in scenario.nodes}
+        if self.state.start_id not in node_ids:
+            self.state.start_id = scenario.depot_id if scenario.depot_id in node_ids else scenario.nodes[0].id
+        if self.state.goal_id not in node_ids or self.state.goal_id == self.state.start_id:
+            self.state.goal_id = next((node.id for node in scenario.nodes if node.id != self.state.start_id), scenario.nodes[0].id)
+        if self.state.shipper_start_id and self.state.shipper_start_id not in node_ids:
+            self.state.shipper_start_id = ""
+
+    def activate_map_for_group(self, group_key: str) -> None:
+        selected_id = self.state.selected_map_ids.get(group_key)
+        try:
+            detail = get_map(selected_id) if selected_id else default_map_for_group(group_key)
+        except HTTPException:
+            detail = default_map_for_group(group_key)
+        self.state.selected_map_ids[group_key] = detail.id
+        self.state.active_map_id = detail.id
+        self.state.scenario = detail.scenario
+        self.sync_node_selection()
+
+    def selected_map_summary(self) -> MapSummary | None:
+        return next((item for item in self.state.maps if item.id == self.state.active_map_id), None)
+
+    def map_options(self) -> list[tuple[str, str]]:
+        return [
+            (str(item.id), f"{item.name} / {item.algorithmGroup}{' / default' if item.isDefault else ''}")
+            for item in self.state.maps
+        ]
+
+    def choose_map(self, map_id: int) -> None:
+        detail = get_map(map_id)
+        group_key = self.current_map_group()
+        self.state.selected_map_ids[group_key] = detail.id
+        self.state.active_map_id = detail.id
+        self.state.scenario = detail.scenario
+        self.state.result = None
+        self.state.trace_index = 0
+        if self.state.workspace == "defense":
+            self.state.group_results.pop(self.state.group, None)
+            self.state.group_trace_indexes.pop(self.state.group, None)
+        self.stop_auto_run()
+        self.stop_shipper_playback()
+        self.sync_node_selection()
+        self.configure_shipper_workspace()
+        self.render()
 
     def algorithm_allowed_for_user(self, algorithm: str) -> bool:
         user = self.state.user
@@ -169,6 +227,8 @@ class FletDashboard:
                 self.state.workspace = "shipper" if self.state.user.role == "shipper" else "defense"
                 self.state.error = ""
                 self.state.permissions = list_permissions()
+                self.load_map_catalog()
+                self.activate_map_for_group("shipper" if self.state.workspace == "shipper" else self.state.group)
                 self.configure_shipper_workspace()
                 if self.state.user.role != "admin":
                     self.load_orders()
@@ -324,6 +384,7 @@ class FletDashboard:
                 self.state.group_trace_indexes[self.state.group] = self.state.trace_index
             self.state.workspace = workspace
             if workspace == "defense":
+                self.activate_map_for_group(self.state.group)
                 self.state.result = self.state.group_results.get(self.state.group)
                 self.state.trace_index = self.state.group_trace_indexes.get(self.state.group, 0)
             else:
@@ -331,7 +392,10 @@ class FletDashboard:
                 self.state.trace_index = 0
             if self.state.workspace == "admin":
                 self.state.permissions = list_permissions()
+                self.load_map_catalog()
             if self.state.workspace == "shipper":
+                self.activate_map_for_group("shipper")
+                self.configure_shipper_workspace()
                 self.load_orders()
             self.render()
 
@@ -468,6 +532,8 @@ class FletDashboard:
         self.stop_auto_run()
         self.stop_shipper_playback()
         self.state = FletState(scenario=self.state.scenario)
+        self.load_map_catalog()
+        self.activate_map_for_group(self.state.group)
         if self.state.scenario:
             self.state.start_id = self.state.scenario.depot_id
             self.state.goal_id = "D1" if any(node.id == "D1" for node in self.state.scenario.nodes) else self.state.scenario.nodes[-1].id
@@ -542,6 +608,7 @@ class FletDashboard:
                         algorithm="hill_climbing",
                         startId=self.state.shipper_start_id,
                         routingStrategy=self.state.shipper_routing_strategy,
+                        scenario=self.state.scenario,
                         debug=True,
                     ),
                     self.state.user,
@@ -639,6 +706,14 @@ class FletDashboard:
                 [
                     ft.Row([text("ORDERS", 22, TEXT, ft.FontWeight.W_900), pill(f"{len(self.state.orders)} LIVE", "green")]),
                     pill("ON-DEMAND: CURRENT -> PICKUP -> DROPOFF" if profile == "on_demand" else "DEPOT DELIVERY: WAREHOUSE -> STOPS", "cyan"),
+                    dropdown(
+                        "Live map",
+                        str(self.state.active_map_id or ""),
+                        self.map_options(),
+                        lambda event: self.safe(lambda: self.choose_map(int(event.control.value))),
+                    )
+                    if self.state.maps
+                    else ft.Container(height=0),
                     dropdown(
                         "Category",
                         self.state.category_filter,
@@ -744,6 +819,7 @@ class FletDashboard:
             self.stop_auto_run()
             self.state.group_trace_indexes[self.state.group] = self.state.trace_index
             self.state.group = group_key
+            self.activate_map_for_group(group_key)
             self.state.algorithm = self.first_allowed_algorithm(group_key)
             self.state.result = self.state.group_results.get(group_key)
             self.state.trace_index = self.state.group_trace_indexes.get(group_key, 0)
@@ -779,6 +855,14 @@ class FletDashboard:
         controls = [
             ft.Row([text("ALGORITHM GROUP", 11, MUTED, ft.FontWeight.W_900), pill(selected_group["short"], "green")]),
             ft.Column(group_buttons, spacing=8),
+            dropdown(
+                "Live map",
+                str(self.state.active_map_id or ""),
+                self.map_options(),
+                lambda event: self.safe(lambda: self.choose_map(int(event.control.value))),
+            )
+            if self.state.maps
+            else ft.Container(height=0),
             ft.Container(height=1, bgcolor=LINE),
             text("ALGORITHM", 11, MUTED, ft.FontWeight.W_900),
             ft.Column(algorithm_buttons, spacing=8),
@@ -870,6 +954,8 @@ class FletDashboard:
     def admin_view(self) -> ft.Control:
         if not self.state.permissions:
             self.state.permissions = list_permissions()
+        if not self.state.maps:
+            self.load_map_catalog()
 
         def toggle(permission: PermissionRow) -> None:
             def do_toggle() -> None:
@@ -888,6 +974,71 @@ class FletDashboard:
                 self.render()
 
             self.safe(do_toggle)
+
+        def reset_map_editor() -> None:
+            self.state.map_editor_id = None
+            self.state.map_editor_name = ""
+            self.state.map_editor_description = ""
+            self.state.map_editor_group = self.current_map_group()
+            self.state.map_editor_is_default = False
+            self.render()
+
+        def edit_map(item: MapSummary) -> None:
+            self.state.map_editor_id = item.id
+            self.state.map_editor_name = item.name
+            self.state.map_editor_description = item.description
+            self.state.map_editor_group = item.algorithmGroup
+            self.state.map_editor_is_default = item.isDefault
+            self.render()
+
+        def save_map(_: Any = None) -> None:
+            def do_save() -> None:
+                if self.state.map_editor_id is None:
+                    create_map(
+                        MapCreateRequest(
+                            name=self.state.map_editor_name or "New map",
+                            description=self.state.map_editor_description,
+                            algorithmGroup=self.state.map_editor_group,
+                            isDefault=self.state.map_editor_is_default,
+                            scenario=self.state.scenario or load_osm_cached_scenario(),
+                        )
+                    )
+                else:
+                    update_map(
+                        self.state.map_editor_id,
+                        MapPatchRequest(
+                            name=self.state.map_editor_name or "Untitled map",
+                            description=self.state.map_editor_description,
+                            algorithmGroup=self.state.map_editor_group,
+                            isDefault=self.state.map_editor_is_default,
+                        ),
+                    )
+                self.load_map_catalog()
+                self.activate_map_for_group(self.current_map_group())
+                self.state.map_editor_id = None
+                self.render()
+
+            self.safe(do_save)
+
+        def set_default_map(item: MapSummary) -> None:
+            def do_set_default() -> None:
+                update_map(item.id, MapPatchRequest(isDefault=True))
+                self.load_map_catalog()
+                self.activate_map_for_group(self.current_map_group())
+                self.render()
+
+            self.safe(do_set_default)
+
+        def remove_map(item: MapSummary) -> None:
+            def do_remove() -> None:
+                delete_map(item.id)
+                self.load_map_catalog()
+                if self.state.active_map_id == item.id:
+                    self.state.selected_map_ids.pop(self.current_map_group(), None)
+                self.activate_map_for_group(self.current_map_group())
+                self.render()
+
+            self.safe(do_remove)
 
         cards = []
         for permission in self.state.permissions:
@@ -923,6 +1074,105 @@ class FletDashboard:
                     height=132,
                 )
             )
+        map_cards = []
+        for item in self.state.maps:
+            map_cards.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Column(
+                                        [
+                                            text(item.name, 16, TEXT, ft.FontWeight.W_900),
+                                            text(f"{item.algorithmGroup} | {item.nodeCount} nodes | {item.edgeCount} edges", 11, MUTED),
+                                        ],
+                                        expand=True,
+                                    ),
+                                    ft.Switch(
+                                        value=item.isDefault,
+                                        active_color=GREEN,
+                                        on_change=lambda _, map_item=item: set_default_map(map_item),
+                                    ),
+                                ],
+                                vertical_alignment=ft.CrossAxisAlignment.START,
+                            ),
+                            text(item.description or "-", 11, MUTED),
+                            ft.Row(
+                                [
+                                    outline_button("Sua", lambda _, map_item=item: edit_map(map_item), ft.Icons.EDIT),
+                                    outline_button("Xoa", lambda _, map_item=item: remove_map(map_item), ft.Icons.DELETE),
+                                ],
+                                wrap=True,
+                            ),
+                        ],
+                        spacing=8,
+                    ),
+                    bgcolor=PANEL_2,
+                    border=ft.border.all(1, GREEN if item.id == self.state.active_map_id else LINE),
+                    border_radius=4,
+                    padding=12,
+                    col={"xs": 12, "md": 6, "xxl": 4},
+                    height=160,
+                )
+            )
+        map_group_options = [(key, meta["label"]) for key, meta in ALGORITHM_GROUPS.items()] + [("shipper", "Shipper Dispatch")]
+        map_editor = panel(
+            ft.Column(
+                [
+                    ft.Row(
+                        [
+                            text("Map Library", 20, TEXT, ft.FontWeight.W_900),
+                            ft.Icon(ft.Icons.MAP, color=GREEN),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.TextField(
+                        label="Map name",
+                        value=self.state.map_editor_name,
+                        on_change=lambda e: self.set_field("map_editor_name", e.control.value, rerender=False),
+                        border_color=LINE,
+                        focused_border_color=GREEN,
+                        bgcolor=PANEL_2,
+                        color=TEXT,
+                    ),
+                    ft.TextField(
+                        label="Description",
+                        value=self.state.map_editor_description,
+                        on_change=lambda e: self.set_field("map_editor_description", e.control.value, rerender=False),
+                        border_color=LINE,
+                        focused_border_color=GREEN,
+                        bgcolor=PANEL_2,
+                        color=TEXT,
+                    ),
+                    dropdown(
+                        "Algorithm group",
+                        self.state.map_editor_group,
+                        map_group_options,
+                        lambda event: self.set_field("map_editor_group", event.control.value),
+                    ),
+                    ft.Switch(
+                        label="Default map",
+                        value=self.state.map_editor_is_default,
+                        active_color=GREEN,
+                        on_change=lambda event: self.set_field("map_editor_is_default", bool(event.control.value), rerender=False),
+                    ),
+                    ft.Row(
+                        [
+                            primary_button(
+                                "Tao map" if self.state.map_editor_id is None else "Luu map",
+                                save_map,
+                                ft.Icons.SAVE,
+                            ),
+                            outline_button("Nhap moi", lambda _: reset_map_editor(), ft.Icons.ADD),
+                        ],
+                        wrap=True,
+                    ),
+                ],
+                spacing=12,
+            ),
+            dark=True,
+        )
         enabled = len([item for item in self.state.permissions if item.enabled])
         summary = panel(
             ft.Column(
@@ -938,8 +1188,19 @@ class FletDashboard:
         )
         return ft.ResponsiveRow(
             [
-                ft.Container(ft.ResponsiveRow(cards, spacing=12, run_spacing=12), col={"xs": 12, "xl": 9}),
-                ft.Container(summary, col={"xs": 12, "xl": 3}),
+                ft.Container(
+                    ft.Column(
+                        [
+                            ft.ResponsiveRow(cards, spacing=12, run_spacing=12),
+                            ft.Container(height=1, bgcolor=LINE),
+                            ft.Row([text("MAPS", 18, TEXT, ft.FontWeight.W_900), pill(str(len(self.state.maps)), "green")]),
+                            ft.ResponsiveRow(map_cards, spacing=12, run_spacing=12),
+                        ],
+                        spacing=12,
+                    ),
+                    col={"xs": 12, "xl": 9},
+                ),
+                ft.Container(ft.Column([summary, map_editor], spacing=12), col={"xs": 12, "xl": 3}),
             ],
             spacing=12,
             run_spacing=12,
@@ -1246,6 +1507,8 @@ class FletDashboard:
 
     def map_url(self) -> str:
         params: dict[str, str] = {"group": self.current_map_group()}
+        if self.state.active_map_id:
+            params["mapId"] = str(self.state.active_map_id)
         if self.state.algorithm:
             params["algorithm"] = self.state.algorithm
         if self.state.result and self.state.result.path:
@@ -1656,12 +1919,16 @@ class FletDashboard:
             wrap=True,
         )
         group_label = ALGORITHM_GROUPS.get(map_group, {}).get("label", "Shipper Dispatch")
+        map_summary = self.selected_map_summary()
+        map_title = f"BAN DO / {group_label.upper()}"
+        if map_summary:
+            map_title = f"{map_title} / {map_summary.name.upper()}"
         return panel(
             ft.Column(
                 [
                     ft.Row(
                         [
-                            text(f"BAN DO / {group_label.upper()}", 16, TEXT, ft.FontWeight.W_900),
+                            text(map_title, 16, TEXT, ft.FontWeight.W_900),
                             ft.Row(
                                 [
                                     legend,

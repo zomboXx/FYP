@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.data.scenario import load_osm_cached_scenario
+from app.services.map_service import default_map_for_group, selected_map_for_group
 from app.ui.theme import ALGORITHM_GROUPS, ALGORITHM_MAP_STYLES
 
 MAP_ICON_DIR = Path(__file__).resolve().parent / "assets" / "map-icons"
@@ -27,12 +27,16 @@ def register_map_ui(app: FastAPI) -> None:
         active: int = Query(default=0, ge=0),
         group: str = Query(default="informed", description="Algorithm group used to style this map."),
         algorithm: str | None = Query(default=None),
+        map_id: int | None = Query(default=None, alias="mapId"),
     ) -> HTMLResponse:
-        scenario = load_osm_cached_scenario()
         route = [node_id.strip() for node_id in path.split(",") if node_id.strip()]
         map_group = group if group in ALGORITHM_MAP_STYLES else "informed"
+        try:
+            map_detail = selected_map_for_group(map_group, map_id)
+        except HTTPException:
+            map_detail = default_map_for_group(map_group)
         payload = {
-            "scenario": scenario.model_dump(),
+            "scenario": map_detail.scenario.model_dump(),
             "route": route,
             "start": start,
             "goal": goal,
@@ -43,6 +47,8 @@ def register_map_ui(app: FastAPI) -> None:
             "algorithm": algorithm,
             "mapStyle": ALGORITHM_MAP_STYLES[map_group],
             "groupLabel": ALGORITHM_GROUPS.get(map_group, {}).get("label", "Shipper Dispatch"),
+            "mapId": map_detail.id,
+            "mapName": map_detail.name,
         }
         return HTMLResponse(_render_map_html(payload))
 
@@ -153,6 +159,62 @@ def _render_map_html(payload: dict) -> str:
       border-color: #23d179;
       color: #030507;
     }}
+    button.active {{
+      background: #facc15;
+      border-color: #facc15;
+      color: #030507;
+    }}
+    .edge-builder {{
+      margin-top: 10px;
+      display: grid;
+      gap: 8px;
+      padding: 8px;
+      background: #030507;
+      border: 1px solid #23303c;
+      border-radius: 6px;
+    }}
+    .edge-builder h2 {{
+      margin: 0;
+      color: #f7fafc;
+      font-size: 12px;
+      line-height: 1.3;
+    }}
+    .edge-grid {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }}
+    .edge-field {{
+      display: grid;
+      gap: 4px;
+      color: #8ea0b7;
+      font-size: 11px;
+      font-weight: 700;
+    }}
+    .edge-field input,
+    .edge-field select {{
+      width: 100%;
+      box-sizing: border-box;
+      color: #f7fafc;
+      background: #101720;
+      border: 1px solid #344250;
+      border-radius: 6px;
+      padding: 7px 8px;
+      font-size: 12px;
+    }}
+    .edge-check {{
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #8ea0b7;
+      font-size: 11px;
+      font-weight: 700;
+    }}
+    .edge-check input {{
+      width: 14px;
+      height: 14px;
+      accent-color: #facc15;
+    }}
     #manual-list {{
       margin: 10px 0 0;
       max-height: 120px;
@@ -165,6 +227,32 @@ def _render_map_html(payload: dict) -> str:
       font-size: 12px;
       line-height: 1.55;
       white-space: pre-wrap;
+    }}
+    #edge-list {{
+      max-height: 128px;
+      overflow: auto;
+      color: #8ea0b7;
+      font-size: 12px;
+      line-height: 1.5;
+    }}
+    .edge-table {{
+      width: 100%;
+      border-collapse: collapse;
+    }}
+    .edge-table th,
+    .edge-table td {{
+      border-bottom: 1px solid #23303c;
+      padding: 5px 4px;
+      text-align: left;
+      vertical-align: top;
+    }}
+    .edge-table th {{
+      color: #f7fafc;
+      font-size: 10px;
+    }}
+    .edge-table button {{
+      padding: 5px 7px;
+      font-size: 11px;
     }}
     .node-label {{
       display: grid;
@@ -278,9 +366,10 @@ def _render_map_html(payload: dict) -> str:
       <span class="pill" id="map-mode">OSM + Leaflet</span>
     </header>
     <div class="body">
-      <p class="muted">Click tren ban do de them node thu cong. Keo node de sua vi tri; click vao node de sua toa do, doi ten hoac xoa.</p>
+      <p class="muted">Bat che do dat node de click tren ban do. Keo node de sua vi tri; dung bang edge de noi node OSM hoac node thu cong.</p>
       <div class="actions">
         <button class="primary" id="fit-route">Fit route</button>
+        <button class="active" id="toggle-node-place">Place node: On</button>
         <button id="toggle-tiles">Off OSM</button>
         <button id="copy-coords">Copy coords</button>
         <button id="clear-manual">Clear manual</button>
@@ -294,6 +383,33 @@ def _render_map_html(payload: dict) -> str:
         </div>
       </div>
       <div id="manual-list">Manual nodes: chua co</div>
+      <div class="edge-builder">
+        <h2>Custom edges</h2>
+        <div class="edge-grid">
+          <label class="edge-field">From
+            <select id="edge-source"></select>
+          </label>
+          <label class="edge-field">To
+            <select id="edge-target"></select>
+          </label>
+          <label class="edge-field">Distance km
+            <input id="edge-distance" type="number" min="0" step="0.01" value="0.50" />
+          </label>
+          <label class="edge-field">Minutes
+            <input id="edge-minutes" type="number" min="0" step="0.1" value="3.0" />
+          </label>
+        </div>
+        <label class="edge-check">
+          <input id="edge-blocked" type="checkbox" />
+          Blocked edge
+        </label>
+        <div class="actions">
+          <button class="primary" id="set-edge">Set edge</button>
+          <button id="copy-graph">Copy graph</button>
+          <button id="clear-edges">Clear edges</button>
+        </div>
+        <div id="edge-list">Custom edges: chua co</div>
+      </div>
     </div>
   </section>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -307,6 +423,7 @@ def _render_map_html(payload: dict) -> str:
     const mapGroup = payload.mapGroup || "informed";
     const mapStyle = payload.mapStyle || {{}};
     const groupLabel = payload.groupLabel || "Live Map";
+    const mapName = payload.mapName || "Default map";
     const algorithmLabel = payload.algorithm ? ` / ${{String(payload.algorithm).toUpperCase()}}` : "";
     const routeLegs = payload.routeLegs || [];
     const orderItems = payload.orders || [];
@@ -338,7 +455,7 @@ def _render_map_html(payload: dict) -> str:
       pickupParcel: "/assets/map-icons/pickup-parcel.png",
       dropoffPin: "/assets/map-icons/dropoff-pin.png",
     }};
-    document.getElementById("map-title").textContent = `Find Your Path / ${{groupLabel}}${{algorithmLabel}}`;
+    document.getElementById("map-title").textContent = `Find Your Path / ${{groupLabel}} / ${{mapName}}${{algorithmLabel}}`;
     document.getElementById("map-mode").textContent = mapStyle.badge || "OSM + Leaflet";
 
     function scale(value, fromMin, fromMax, toMin, toMax) {{
@@ -393,6 +510,7 @@ def _render_map_html(payload: dict) -> str:
     const graphLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
     const temporaryDeliveryLayer = L.layerGroup().addTo(map);
+    const customEdgeLayer = L.layerGroup().addTo(map);
     const manualLayer = L.layerGroup().addTo(map);
     const allBounds = [];
 
@@ -517,10 +635,19 @@ def _render_map_html(payload: dict) -> str:
     renderActiveLeg();
 
     const manualNodes = [];
+    const customEdges = [];
     let manualLine = null;
     let manualSeq = 1;
+    let nodePlacementEnabled = true;
     let suppressNextMapClick = false;
     const manualList = document.getElementById("manual-list");
+    const edgeSource = document.getElementById("edge-source");
+    const edgeTarget = document.getElementById("edge-target");
+    const edgeDistance = document.getElementById("edge-distance");
+    const edgeMinutes = document.getElementById("edge-minutes");
+    const edgeBlocked = document.getElementById("edge-blocked");
+    const edgeList = document.getElementById("edge-list");
+    const toggleNodePlace = document.getElementById("toggle-node-place");
 
     function escapeHtml(value) {{
       return String(value)
@@ -542,6 +669,68 @@ def _render_map_html(payload: dict) -> str:
 
     function manualNodePayload() {{
       return manualNodes.map((node) => ({{ id: node.id, lat: node.lat, lng: node.lng }}));
+    }}
+
+    function customEdgePayload() {{
+      return customEdges.map((edge) => ({{
+        source: edge.source,
+        target: edge.target,
+        distance_km: edge.distanceKm,
+        base_minutes: edge.baseMinutes,
+        blocked: edge.blocked,
+      }}));
+    }}
+
+    function customGraphPayload() {{
+      return {{
+        nodes: manualNodePayload(),
+        edges: customEdgePayload(),
+      }};
+    }}
+
+    function nodeIdExists(id, ignoreNode = null) {{
+      return byId.has(id) || manualNodes.some((node) => node !== ignoreNode && node.id === id);
+    }}
+
+    function nextManualId() {{
+      let candidate = `M${{manualSeq++}}`;
+      while (nodeIdExists(candidate)) {{
+        candidate = `M${{manualSeq++}}`;
+      }}
+      return candidate;
+    }}
+
+    function allConnectableNodes() {{
+      return [
+        ...nodes.map((node) => ({{ id: node.id, label: `${{node.id}} - ${{node.name}}` }})),
+        ...manualNodes.map((node) => ({{ id: node.id, label: `${{node.id}} - custom` }})),
+      ];
+    }}
+
+    function nodeByAnyId(nodeId) {{
+      return byId.get(nodeId) || manualNodes.find((node) => node.id === nodeId) || null;
+    }}
+
+    function latLngByAnyId(nodeId) {{
+      const node = nodeByAnyId(nodeId);
+      if (!node) return null;
+      if ("marker" in node) return [node.lat, node.lng];
+      return nodeLatLng(node);
+    }}
+
+    function refreshEdgeNodeOptions() {{
+      const previousSource = edgeSource.value;
+      const previousTarget = edgeTarget.value;
+      const options = allConnectableNodes();
+      for (const select of [edgeSource, edgeTarget]) {{
+        select.replaceChildren();
+        for (const item of options) {{
+          select.add(new Option(item.label, item.id));
+        }}
+      }}
+      if (options.some((item) => item.id === previousSource)) edgeSource.value = previousSource;
+      if (options.some((item) => item.id === previousTarget)) edgeTarget.value = previousTarget;
+      if (!edgeTarget.value && options.length > 1) edgeTarget.value = options[1].id;
     }}
 
     function manualPopupHtml(node) {{
@@ -589,12 +778,23 @@ def _render_map_html(payload: dict) -> str:
             manualList.textContent = "Toa do khong hop le. Hay nhap lat/lng dang so.";
             return;
           }}
+          if (nextId !== node.id && nodeIdExists(nextId, node)) {{
+            manualList.textContent = `Node ID ${{nextId}} da ton tai. Hay chon ID khac.`;
+            return;
+          }}
+          const previousId = node.id;
           node.id = nextId;
           node.lat = nextLat;
           node.lng = nextLng;
+          for (const edge of customEdges) {{
+            if (edge.source === previousId) edge.source = nextId;
+            if (edge.target === previousId) edge.target = nextId;
+          }}
           node.marker.setLatLng([node.lat, node.lng]);
           node.marker.setIcon(manualIcon(node.id));
           bindManualPopup(node);
+          refreshEdgeNodeOptions();
+          renderCustomEdges();
           renderManual();
           node.marker.closePopup();
           window.setTimeout(() => {{
@@ -613,7 +813,11 @@ def _render_map_html(payload: dict) -> str:
       }});
     }}
 
-    function addManualNode(lat, lng, id = `M${{manualSeq++}}`) {{
+    function addManualNode(lat, lng, id = nextManualId()) {{
+      if (nodeIdExists(id)) {{
+        manualList.textContent = `Node ID ${{id}} da ton tai. Hay chon ID khac.`;
+        return null;
+      }}
       const node = {{ id, lat, lng, marker: null }};
       node.marker = L.marker([lat, lng], {{
         icon: manualIcon(id),
@@ -632,6 +836,7 @@ def _render_map_html(payload: dict) -> str:
         node.lat = point.lat;
         node.lng = point.lng;
         bindManualPopup(node);
+        renderCustomEdges();
         renderManual();
         suppressNextMapClick = true;
         window.setTimeout(() => {{
@@ -640,6 +845,7 @@ def _render_map_html(payload: dict) -> str:
       }});
       bindManualPopup(node);
       manualNodes.push(node);
+      refreshEdgeNodeOptions();
       renderManual();
       return node;
     }}
@@ -648,6 +854,8 @@ def _render_map_html(payload: dict) -> str:
       const index = manualNodes.indexOf(node);
       if (index >= 0) manualNodes.splice(index, 1);
       manualLayer.removeLayer(node.marker);
+      removeCustomEdgesForNode(node.id);
+      refreshEdgeNodeOptions();
       renderManual();
     }}
 
@@ -665,9 +873,105 @@ def _render_map_html(payload: dict) -> str:
         : "Manual nodes: chua co";
     }}
 
+    function edgeKey(edge) {{
+      return `${{edge.source}}->${{edge.target}}`;
+    }}
+
+    function removeCustomEdgesForNode(nodeId) {{
+      for (let index = customEdges.length - 1; index >= 0; index -= 1) {{
+        if (customEdges[index].source === nodeId || customEdges[index].target === nodeId) {{
+          customEdges.splice(index, 1);
+        }}
+      }}
+      renderCustomEdges();
+    }}
+
+    function renderCustomEdges() {{
+      customEdgeLayer.clearLayers();
+      for (const edge of customEdges) {{
+        const source = latLngByAnyId(edge.source);
+        const target = latLngByAnyId(edge.target);
+        if (!source || !target) continue;
+        L.polyline([source, target], {{
+          color: edge.blocked ? "#ff4d57" : mapStyle.frontier || "#facc15",
+          weight: edge.blocked ? 5 : 4,
+          opacity: 0.92,
+          dashArray: edge.blocked ? "4 7" : "10 8",
+        }})
+          .bindTooltip(`${{edge.source}} -> ${{edge.target}} | ${{edge.distanceKm}} km | ${{edge.baseMinutes}} min`)
+          .addTo(customEdgeLayer);
+      }}
+      renderEdgeTable();
+    }}
+
+    function renderEdgeTable() {{
+      edgeList.replaceChildren();
+      if (!customEdges.length) {{
+        edgeList.textContent = "Custom edges: chua co";
+        return;
+      }}
+      const table = document.createElement("table");
+      table.className = "edge-table";
+      const head = document.createElement("thead");
+      head.innerHTML = "<tr><th>Edge</th><th>Cost</th><th></th></tr>";
+      table.appendChild(head);
+      const body = document.createElement("tbody");
+      customEdges.forEach((edge, index) => {{
+        const row = document.createElement("tr");
+        const edgeCell = document.createElement("td");
+        edgeCell.textContent = `${{edge.source}} -> ${{edge.target}}${{edge.blocked ? " / blocked" : ""}}`;
+        const costCell = document.createElement("td");
+        costCell.textContent = `${{edge.distanceKm}} km / ${{edge.baseMinutes}} min`;
+        const actionCell = document.createElement("td");
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "danger";
+        remove.textContent = "Xoa";
+        remove.addEventListener("click", () => {{
+          customEdges.splice(index, 1);
+          renderCustomEdges();
+        }});
+        actionCell.appendChild(remove);
+        row.append(edgeCell, costCell, actionCell);
+        body.appendChild(row);
+      }});
+      table.appendChild(body);
+      edgeList.appendChild(table);
+    }}
+
+    function setCustomEdge() {{
+      const source = edgeSource.value;
+      const target = edgeTarget.value;
+      const distanceKm = Number(edgeDistance.value);
+      const baseMinutes = Number(edgeMinutes.value);
+      if (!source || !target || source === target) {{
+        edgeList.textContent = "Hay chon hai node khac nhau.";
+        return;
+      }}
+      if (!Number.isFinite(distanceKm) || distanceKm < 0 || !Number.isFinite(baseMinutes) || baseMinutes < 0) {{
+        edgeList.textContent = "Distance va minutes phai la so khong am.";
+        return;
+      }}
+      const nextEdge = {{
+        source,
+        target,
+        distanceKm: Number(distanceKm.toFixed(3)),
+        baseMinutes: Number(baseMinutes.toFixed(2)),
+        blocked: edgeBlocked.checked,
+      }};
+      const existing = customEdges.findIndex((edge) => edgeKey(edge) === edgeKey(nextEdge));
+      if (existing >= 0) {{
+        customEdges[existing] = nextEdge;
+      }} else {{
+        customEdges.push(nextEdge);
+      }}
+      renderCustomEdges();
+    }}
+
     map.on("click", (event) => {{
       const target = event.originalEvent && event.originalEvent.target;
       if (
+        !nodePlacementEnabled ||
         suppressNextMapClick ||
         (target instanceof Element &&
           target.closest(".leaflet-marker-icon, .leaflet-popup, .leaflet-control, .hud"))
@@ -675,10 +979,20 @@ def _render_map_html(payload: dict) -> str:
         suppressNextMapClick = false;
         return;
       }}
-      addManualNode(event.latlng.lat, event.latlng.lng).marker.openPopup();
+      const node = addManualNode(event.latlng.lat, event.latlng.lng);
+      if (node) node.marker.openPopup();
     }});
 
+    refreshEdgeNodeOptions();
+    renderCustomEdges();
+
     document.getElementById("fit-route").addEventListener("click", fitRoute);
+    toggleNodePlace.addEventListener("click", () => {{
+      nodePlacementEnabled = !nodePlacementEnabled;
+      toggleNodePlace.textContent = nodePlacementEnabled ? "Place node: On" : "Place node: Off";
+      toggleNodePlace.classList.toggle("active", nodePlacementEnabled);
+      toggleNodePlace.classList.toggle("primary", nodePlacementEnabled);
+    }});
     document.getElementById("toggle-tiles").addEventListener("click", () => {{
       tilesEnabled = !tilesEnabled;
       const mode = document.getElementById("map-mode");
@@ -698,10 +1012,18 @@ def _render_map_html(payload: dict) -> str:
       }}
     }});
     document.getElementById("clear-manual").addEventListener("click", () => {{
+      const manualIds = new Set(manualNodes.map((node) => node.id));
       manualNodes.length = 0;
       manualLayer.clearLayers();
       manualLine = null;
       manualSeq = 1;
+      for (let index = customEdges.length - 1; index >= 0; index -= 1) {{
+        if (manualIds.has(customEdges[index].source) || manualIds.has(customEdges[index].target)) {{
+          customEdges.splice(index, 1);
+        }}
+      }}
+      refreshEdgeNodeOptions();
+      renderCustomEdges();
       renderManual();
     }});
     document.getElementById("copy-coords").addEventListener("click", async () => {{
@@ -712,6 +1034,21 @@ def _render_map_html(payload: dict) -> str:
       }} catch {{
         manualList.textContent = text || "[]";
       }}
+    }});
+    document.getElementById("set-edge").addEventListener("click", setCustomEdge);
+    document.getElementById("clear-edges").addEventListener("click", () => {{
+      customEdges.length = 0;
+      renderCustomEdges();
+    }});
+    document.getElementById("copy-graph").addEventListener("click", async () => {{
+      const text = JSON.stringify(customGraphPayload(), null, 2);
+      try {{
+        await navigator.clipboard.writeText(text);
+        edgeList.textContent = `${{customEdges.length}} custom edge(s) copied.`;
+      }} catch {{
+        edgeList.textContent = text;
+      }}
+      window.setTimeout(renderCustomEdges, 900);
     }});
     document.getElementById("prev-leg").addEventListener("click", () => {{
       activeLegIndex = Math.max(0, activeLegIndex - 1);

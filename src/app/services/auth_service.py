@@ -143,6 +143,16 @@ def init_db() -> None:
                 delivered_at INTEGER,
                 PRIMARY KEY (user_id, order_id)
             );
+            CREATE TABLE IF NOT EXISTS maps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                algorithm_group TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                scenario_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             """
         )
         assignment_columns = {
@@ -151,6 +161,7 @@ def init_db() -> None:
         if "delivered_at" not in assignment_columns:
             db.execute("ALTER TABLE shipper_order_assignments ADD COLUMN delivered_at INTEGER")
         seed_demo_data(db)
+        seed_demo_maps(db)
         db.execute(
             """
             UPDATE orders
@@ -160,6 +171,42 @@ def init_db() -> None:
                 SELECT order_id FROM shipper_order_assignments WHERE delivered_at IS NULL
             )
             """
+        )
+
+
+def seed_demo_maps(db: sqlite3.Connection) -> None:
+    scenario_json = json.dumps(load_osm_cached_scenario().model_dump(), ensure_ascii=False, separators=(",", ":"))
+    now = int(time.time())
+    groups = [
+        ("uninformed", "Uninformed baseline map", "Graph demo cho BFS, DFS va UCS."),
+        ("informed", "Informed heuristic map", "Graph demo cho A* va Greedy Best-First."),
+        ("local_search", "Local delivery map", "Graph demo cho nhom toi uu lo trinh giao hang."),
+        ("complex", "Partial observability map", "Graph demo cho su kien an va re-plan."),
+        ("csp", "CSP constraint map", "Graph demo cho rang buoc tai trong va lich giao."),
+        ("adversarial", "Adversarial disruption map", "Graph demo cho route robust truoc canh tranh."),
+        ("shipper", "Shipper dispatch map", "Graph van hanh live cho shipper."),
+    ]
+    for group, name, description in groups:
+        exists = db.execute("SELECT 1 FROM maps WHERE algorithm_group = ? LIMIT 1", (group,)).fetchone()
+        if exists:
+            default_exists = db.execute(
+                "SELECT 1 FROM maps WHERE algorithm_group = ? AND is_default = 1 LIMIT 1",
+                (group,),
+            ).fetchone()
+            if not default_exists:
+                first = db.execute(
+                    "SELECT id FROM maps WHERE algorithm_group = ? ORDER BY id LIMIT 1",
+                    (group,),
+                ).fetchone()
+                if first:
+                    db.execute("UPDATE maps SET is_default = 1 WHERE id = ?", (first["id"],))
+            continue
+        db.execute(
+            """
+            INSERT INTO maps(name, description, algorithm_group, is_default, scenario_json, created_at, updated_at)
+            VALUES (?, ?, ?, 1, ?, ?, ?)
+            """,
+            (name, description, group, scenario_json, now, now),
         )
 
 

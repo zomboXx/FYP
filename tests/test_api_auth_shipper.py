@@ -82,6 +82,51 @@ def test_map_route_serves_leaflet_world_map():
     assert "draggable: true" in response.text
     assert "manual-save" in response.text
     assert "manual-delete" in response.text
+    assert "toggle-node-place" in response.text
+    assert "edge-source" in response.text
+    assert "set-edge" in response.text
+    assert "copy-graph" in response.text
+
+
+def test_admin_can_create_update_delete_maps_and_live_map_can_select_one():
+    admin = login("admin", "admin123")
+    listed = client.get("/api/maps", headers=auth(admin))
+    assert listed.status_code == 200
+    assert {"uninformed", "informed", "local_search", "complex", "csp", "adversarial", "shipper"} <= {
+        item["algorithmGroup"] for item in listed.json()
+    }
+
+    created = client.post(
+        "/api/maps",
+        json={
+            "name": "CRUD test map",
+            "description": "Created by API test",
+            "algorithmGroup": "csp",
+            "isDefault": False,
+        },
+        headers=auth(admin),
+    )
+    assert created.status_code == 200
+    map_id = created.json()["id"]
+    assert created.json()["nodeCount"] > 0
+
+    updated = client.patch(
+        f"/api/maps/{map_id}",
+        json={"name": "CRUD test map updated", "isDefault": True},
+        headers=auth(admin),
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "CRUD test map updated"
+    assert updated.json()["isDefault"] is True
+
+    live = client.get(f"/map?group=csp&mapId={map_id}")
+    assert live.status_code == 200
+    assert "CRUD test map updated" in live.text
+
+    deleted = client.delete(f"/api/maps/{map_id}", headers=auth(admin))
+    assert deleted.status_code == 204
+    missing = client.get(f"/api/maps/{map_id}", headers=auth(admin))
+    assert missing.status_code == 404
 
 
 def test_admin_permission_can_block_shipper_algorithm():

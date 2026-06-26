@@ -161,6 +161,37 @@ class ScenarioResponse(Scenario):
     pass
 
 
+class MapSummary(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    algorithmGroup: str
+    isDefault: bool = False
+    nodeCount: int = 0
+    edgeCount: int = 0
+    updatedAt: int
+
+
+class MapDetail(MapSummary):
+    scenario: Scenario
+
+
+class MapCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=240)
+    algorithmGroup: str = Field(default="informed", min_length=1, max_length=40)
+    isDefault: bool = False
+    scenario: Scenario | None = None
+
+
+class MapPatchRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=240)
+    algorithmGroup: str | None = Field(default=None, min_length=1, max_length=40)
+    isDefault: bool | None = None
+    scenario: Scenario | None = None
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
