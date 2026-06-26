@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from itertools import combinations
+import math
 
 from app.algorithms.graph import BLOCKED_COST, edge_key, find_edge, path_time
 from app.algorithms.search import astar, bfs, greedy, ucs
@@ -90,77 +91,185 @@ def adversarial_search(
     best_route: list[str] = []
     best_worst_path: list[str] = []
 
+    def trace_event(
+        phase: str,
+        role: str,
+        current: str,
+        route: list[str],
+        utility: float,
+        reason: str,
+        frontier: list[str] | None = None,
+        extra: dict | None = None,
+    ) -> None:
+        if not debug:
+            return
+        safe_utility = utility if math.isfinite(utility) else 0.0
+        safe_alpha = alpha if math.isfinite(alpha) else None
+        raw_beta = extra.get("beta") if extra else None
+        safe_beta = raw_beta if isinstance(raw_beta, (int, float)) and math.isfinite(raw_beta) else None
+        safe_extra = {
+            key: (value if not isinstance(value, float) or math.isfinite(value) else None)
+            for key, value in (extra or {}).items()
+        }
+        traces.append(
+            TraceStep(
+                stepIndex=len(traces),
+                phase=phase,
+                currentNode=current,
+                frontier=frontier or [],
+                visitedNodes=list(dict.fromkeys(route)),
+                candidatePath=route,
+                costSoFar=round(safe_utility, 2),
+                heuristic=0,
+                decisionReason=reason,
+                debugData={
+                    "traceType": "adversarial_search",
+                    "courseConcept": "Minimax/Alpha-Beta dung cay game voi MAX, MIN, utility va backup value.",
+                    "event": phase,
+                    "role": role,
+                    "alpha": safe_alpha,
+                    "beta": safe_beta,
+                    **safe_extra,
+                },
+            )
+        )
+
     for route_index, route in enumerate(routes):
         expanded_nodes += 1
         min_utility = float("inf")
         worst_path = route
         event_rows: list[dict] = []
         beta = float("inf")
-        if debug:
-            traces.append(
-                TraceStep(
-                    stepIndex=len(traces),
-                    phase="max_choose_route",
-                    currentNode=start_id,
-                    frontier=[" -> ".join(candidate) for candidate in routes],
-                    visitedNodes=[],
-                    candidatePath=route,
-                    costSoFar=0,
-                    heuristic=0,
-                    decisionReason=f"MAX danh gia candidate route {route_index + 1}.",
-                    debugData={"role": "MAX", "alpha": alpha, "beta": None, "routeIndex": route_index},
-                )
-            )
+        trace_event(
+            "ENTER",
+            "MAX",
+            start_id,
+            route,
+            best_utility,
+            f"ENTER MAX: xet nuoc di/candidate route {route_index + 1}.",
+            [" -> ".join(candidate) for candidate in routes],
+            {"routeIndex": route_index, "nodeType": "MAX", "result": "ENTER_MAX"},
+        )
 
         for disruption_index, disruption in enumerate(disruptions):
             expanded_nodes += 1
+            event_name = "no_disruption" if not disruption else ", ".join("-".join(key) for key in disruption)
+            trace_event(
+                "DESCEND",
+                "MAX_TO_MIN",
+                start_id,
+                route,
+                min_utility if min_utility < float("inf") else 0,
+                f"DESCEND: tu MAX di xuong successor MIN ung voi disruption {event_name}.",
+                ["-".join(key) for key in disruption],
+                {
+                    "routeIndex": route_index,
+                    "disruptionIndex": disruption_index,
+                    "disruption": event_name,
+                    "nodeType": "EDGE_TO_MIN",
+                    "beta": beta,
+                    "result": "DESCEND",
+                },
+            )
             cost, recovery_path = _evaluate_leaf(scenario, route, disruption, start_id, goal_id)
             utility = -cost
             min_utility = min(min_utility, utility)
             if utility == min_utility:
                 worst_path = recovery_path
             beta = min(beta, min_utility)
-            event_name = "no_disruption" if not disruption else ", ".join("-".join(key) for key in disruption)
             event_rows.append({"event": event_name, "cost": round(cost, 2), "utility": round(utility, 2), "recoveryPath": recovery_path})
-            if debug:
-                traces.append(
-                    TraceStep(
-                        stepIndex=len(traces),
-                        phase="min_apply_disruption",
-                        currentNode=goal_id,
-                        frontier=["-".join(key) for key in disruption],
-                        visitedNodes=list(dict.fromkeys(recovery_path)),
-                        candidatePath=recovery_path,
-                        costSoFar=round(cost, 2),
-                        heuristic=0,
-                        decisionReason=f"MIN thu disruption {event_name}; utility cua MAX={utility:.2f}.",
-                        debugData={"role": "MIN", "alpha": alpha, "beta": beta, "disruption": event_name},
-                    )
-                )
+            trace_event(
+                "LEAF",
+                "MIN",
+                goal_id,
+                recovery_path,
+                utility,
+                f"LEAF: ap dung disruption {event_name}, tinh utility cua MAX = -cost = {utility:.2f}.",
+                ["-".join(key) for key in disruption],
+                {
+                    "routeIndex": route_index,
+                    "disruptionIndex": disruption_index,
+                    "disruption": event_name,
+                    "cost": round(cost, 2),
+                    "utility": round(utility, 2),
+                    "nodeType": "LEAF",
+                    "beta": beta,
+                    "result": "UTILITY",
+                },
+            )
+            trace_event(
+                "UPDATE",
+                "MIN",
+                goal_id,
+                worst_path,
+                min_utility,
+                f"UPDATE MIN: beta=min(beta, utility), worst utility hien tai cua route = {min_utility:.2f}.",
+                ["-".join(key) for key in disruption],
+                {
+                    "routeIndex": route_index,
+                    "disruptionIndex": disruption_index,
+                    "disruption": event_name,
+                    "utility": round(utility, 2),
+                    "minUtility": round(min_utility, 2),
+                    "nodeType": "MIN",
+                    "beta": beta,
+                    "result": "UPDATE_MIN",
+                },
+            )
             if algorithm == "alpha_beta" and beta <= alpha:
                 pruned_branches += len(disruptions) - disruption_index - 1
-                if debug:
-                    traces.append(
-                        TraceStep(
-                            stepIndex=len(traces),
-                            phase="alpha_beta_prune",
-                            currentNode=goal_id,
-                            frontier=[],
-                            visitedNodes=[],
-                            candidatePath=route,
-                            costSoFar=round(-beta, 2),
-                            heuristic=0,
-                            decisionReason=f"Cat {len(disruptions) - disruption_index - 1} nhanh vi beta <= alpha.",
-                            debugData={"role": "PRUNE", "alpha": alpha, "beta": beta, "pruned": len(disruptions) - disruption_index - 1},
-                        )
-                    )
+                trace_event(
+                    "PRUNE",
+                    "ALPHA_BETA",
+                    goal_id,
+                    route,
+                    min_utility,
+                    f"PRUNE: cat {len(disruptions) - disruption_index - 1} nhanh vi beta <= alpha.",
+                    [],
+                    {
+                        "routeIndex": route_index,
+                        "disruptionIndex": disruption_index,
+                        "nodeType": "PRUNE",
+                        "alpha": alpha,
+                        "beta": beta,
+                        "condition": "beta <= alpha",
+                        "pruned": len(disruptions) - disruption_index - 1,
+                        "result": "PRUNE",
+                    },
+                )
                 break
 
         branches.append({"route": route, "worstUtility": round(min_utility, 2), "events": event_rows})
+        trace_event(
+            "RETURN",
+            "MIN_TO_MAX",
+            start_id,
+            worst_path,
+            min_utility,
+            f"RETURN: MIN tra worst utility {min_utility:.2f} cua route {route_index + 1} ve MAX.",
+            [],
+            {"routeIndex": route_index, "nodeType": "RETURN_TO_MAX", "beta": beta, "result": "RETURN_MIN_VALUE"},
+        )
         if min_utility > best_utility:
             best_utility = min_utility
             best_route = route
             best_worst_path = worst_path
+            trace_event(
+                "UPDATE",
+                "MAX",
+                start_id,
+                best_route,
+                best_utility,
+                f"UPDATE MAX: alpha=max(alpha, value), route {route_index + 1} tam thoi tot nhat.",
+                [],
+                {
+                    "routeIndex": route_index,
+                    "nodeType": "MAX",
+                    "bestUtility": round(best_utility, 2),
+                    "beta": beta,
+                    "result": "UPDATE_MAX",
+                },
+            )
         alpha = max(alpha, best_utility)
 
     return {

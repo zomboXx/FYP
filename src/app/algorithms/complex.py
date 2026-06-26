@@ -87,6 +87,31 @@ def _belief_plan(
     candidates = _candidate_paths(scenario, actual, start, goal)
     traces: list[TraceStep] = []
     scored: list[dict] = []
+    if debug:
+        traces.append(
+            TraceStep(
+                stepIndex=0,
+                phase="BELIEF_INIT",
+                currentNode=start,
+                frontier=["clear_world", "hidden_event_world"],
+                visitedNodes=[],
+                candidatePath=[],
+                costSoFar=0,
+                heuristic=float(2),
+                decisionReason=(
+                    "Khoi tao belief state gom cac world kha di; agent chua biet world nao la that."
+                ),
+                debugData={
+                    "traceType": "belief_state" if algorithm == "belief_state" else "expectimax",
+                    "courseConcept": "Belief State = tap cac trang thai/world kha di khi thieu thong tin.",
+                    "beliefStateSize": 2,
+                    "possibleWorlds": ["clear_world", "hidden_event_world"],
+                    "observation": None,
+                    "filtering": "Khong co observation moi nen chua loai world nao.",
+                    "result": "INIT_BELIEF",
+                },
+            )
+        )
     for path in candidates:
         clear_cost = path_time(scenario, path)
         event_cost = path_time(actual, path)
@@ -99,21 +124,37 @@ def _belief_plan(
         }
         scored.append(row)
         if debug:
+            phase = "CHANCE_EXPECTED_VALUE" if algorithm == "expectimax" else "BELIEF_ACTION_EVALUATE"
+            aggregation = "sum(P(world) * cost(world))" if algorithm == "expectimax" else "worst-case over possible worlds"
             traces.append(
                 TraceStep(
                     stepIndex=len(traces),
-                    phase="evaluate_belief_candidate",
+                    phase=phase,
                     currentNode=start,
-                    frontier=[candidate[-1] for candidate in candidates],
+                    frontier=[" -> ".join(candidate) for candidate in candidates],
                     visitedNodes=list(dict.fromkeys(path)),
                     candidatePath=path,
                     costSoFar=round(value, 2),
                     heuristic=round(event_cost - clear_cost, 2),
                     decisionReason=(
-                        f"Danh gia route trong hai world clear/event; "
-                        f"{'expected' if algorithm == 'expectimax' else 'worst-case'} cost={value:.2f}."
+                        f"Danh gia mot action/route tren belief state: clear={clear_cost:.2f}, "
+                        f"hidden_event={event_cost:.2f}, value={value:.2f} theo {aggregation}."
                     ),
-                    debugData={"possibleWorlds": ["clear", "hidden_event"], **row},
+                    debugData={
+                        "traceType": "belief_state" if algorithm == "belief_state" else "expectimax",
+                        "courseConcept": (
+                            "Expectimax dung chance node va expected value."
+                            if algorithm == "expectimax"
+                            else "Sensorless/Belief search phai chon action tot cho toan bo tap world kha di."
+                        ),
+                        "beliefStateSize": 2,
+                        "possibleWorlds": ["clear_world", "hidden_event_world"],
+                        "probabilities": {"clear_world": 0.65, "hidden_event_world": 0.35} if algorithm == "expectimax" else {},
+                        "aggregation": aggregation,
+                        "action": " -> ".join(path),
+                        "result": "EVALUATE_ACTION",
+                        **row,
+                    },
                 )
             )
     best = min(scored, key=lambda item: item["value"], default={"path": [], "value": BLOCKED_COST})
@@ -151,15 +192,26 @@ def _online_replan(
         traces.append(
             TraceStep(
                 stepIndex=0,
-                phase="belief_init",
+                phase="PARTIAL_OBSERVATION_INIT",
                 currentNode=current,
                 frontier=[],
                 visitedNodes=[],
                 candidatePath=initial.path,
                 costSoFar=0,
                 heuristic=float(len(remaining_hidden)),
-                decisionReason="Khoi tao belief state: cac thay doi ngoai sensor range chua duoc quan sat.",
-                debugData={"hiddenEdges": sorted("-".join(key) for key in remaining_hidden), "sensorRadius": sensor_radius},
+                decisionReason=(
+                    "Khoi tao partial-observable state: agent co map believed, hidden event nam ngoai sensor range."
+                ),
+                debugData={
+                    "traceType": "partial_observation",
+                    "courseConcept": "Partial Observation: predict -> observe percept -> filter belief state -> replan.",
+                    "hiddenEdges": sorted("-".join(key) for key in remaining_hidden),
+                    "sensorRadius": sensor_radius,
+                    "beliefStateSize": 1 + len(remaining_hidden),
+                    "observation": [],
+                    "filtering": "Chua co percept nen believed map giu nguyen.",
+                    "result": "INIT_BELIEF",
+                },
             )
         )
 
@@ -173,10 +225,12 @@ def _online_replan(
         visited.extend(plan.visited_nodes)
         replans += 1
         if debug:
+            before_size = 1 + len(remaining_hidden) + len(revealed)
+            after_size = 1 + len(remaining_hidden)
             traces.append(
                 TraceStep(
                     stepIndex=len(traces),
-                    phase="observe_and_replan",
+                    phase="OBSERVE_FILTER_REPLAN",
                     currentNode=current,
                     frontier=plan.visited_nodes,
                     visitedNodes=list(dict.fromkeys(visited)),
@@ -184,15 +238,25 @@ def _online_replan(
                     costSoFar=plan.total_minutes,
                     heuristic=float(len(remaining_hidden)),
                     decisionReason=(
-                        f"Sensor thay {len(revealed)} thay doi; cap nhat belief va lap route tu {current}."
+                        f"Nhan percept co {len(revealed)} thay doi; filter belief state roi re-plan tu {current}."
                         if revealed
-                        else f"Khong co observation moi; tiep tuc policy tu {current}."
+                        else f"Khong co percept moi; belief state khong doi va tiep tuc policy tu {current}."
                     ),
                     debugData={
+                        "traceType": "partial_observation",
+                        "courseConcept": "Observation dung de loai cac world khong phu hop, sau do lap ke hoach lai.",
                         "observation": revealed,
                         "observedEdges": observed_edges[:],
                         "remainingHiddenEdges": sorted("-".join(key) for key in remaining_hidden),
+                        "beliefStateSizeBefore": before_size,
+                        "beliefStateSizeAfter": after_size,
+                        "filtering": (
+                            "Loai cac edge hidden da duoc sensor xac nhan."
+                            if revealed
+                            else "Khong loai world nao vi percept rong."
+                        ),
                         "beliefPath": plan.path,
+                        "result": "FILTER_AND_REPLAN",
                     },
                 )
             )

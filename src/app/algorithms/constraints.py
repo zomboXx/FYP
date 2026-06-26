@@ -221,6 +221,12 @@ def solve_delivery_csp(
                 decisionReason=reason,
                 debugData={
                     "traceType": "csp",
+                    "courseConcept": "CSP = Variables, Domains, Constraints; Backtracking thu gia tri va quay lui khi vi pham.",
+                    "algorithmRule": (
+                        "Forward Checking cat nhanh khi mot bien chua gan mat het mien."
+                        if algorithm == "forward_checking"
+                        else "Backtracking thu tung gia tri trong domain cho den khi tim duoc assignment hop le."
+                    ),
                     "concept": "Bien = vi tri tiep theo trong chuoi pickup/dropoff; mien = cac hanh dong con hop le.",
                     "selectedVariable": selected_variable,
                     "domainValues": domain,
