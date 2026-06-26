@@ -70,7 +70,7 @@ def _render_map_html(payload: dict) -> str:
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Find Your Path Map</title>
+  <title>FYP Delivery Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     html, body, #map {{
@@ -362,7 +362,7 @@ def _render_map_html(payload: dict) -> str:
   <div id="map"></div>
   <section class="hud">
     <header>
-      <h1 id="map-title">Find Your Path / Live Map</h1>
+      <h1 id="map-title">FYP Delivery / Live Map</h1>
       <span class="pill" id="map-mode">OSM + Leaflet</span>
     </header>
     <div class="body">
@@ -455,7 +455,7 @@ def _render_map_html(payload: dict) -> str:
       pickupParcel: "/assets/map-icons/pickup-parcel.png",
       dropoffPin: "/assets/map-icons/dropoff-pin.png",
     }};
-    document.getElementById("map-title").textContent = `Find Your Path / ${{groupLabel}} / ${{mapName}}${{algorithmLabel}}`;
+    document.getElementById("map-title").textContent = `FYP Delivery / ${{groupLabel}} / ${{mapName}}${{algorithmLabel}}`;
     document.getElementById("map-mode").textContent = mapStyle.badge || "OSM + Leaflet";
 
     function scale(value, fromMin, fromMax, toMin, toMax) {{

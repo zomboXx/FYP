@@ -10,7 +10,7 @@ from app.ui.web_mount import register_web_ui
 
 def create_app() -> FastAPI:
     init_db()
-    app = FastAPI(title="FYP: Find Your Path API", version="0.1.0")
+    app = FastAPI(title="FYP Delivery API", version="0.1.0")
     app.include_router(api_router)
     register_map_ui(app)
     register_web_ui(app)

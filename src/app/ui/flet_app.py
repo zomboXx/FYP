@@ -86,7 +86,7 @@ class FletDashboard:
         self.root = ft.Container(expand=True)
 
     def setup(self) -> None:
-        self.page.title = "Find Your Path"
+        self.page.title = "FYP Delivery"
         self.page.padding = 0
         self.page.spacing = 0
         self.page.bgcolor = BG
@@ -281,7 +281,7 @@ class FletDashboard:
                     ft.Row(
                         [
                             ft.Icon(ft.Icons.ROUTE, color=GREEN, size=22),
-                            text("FIND YOUR PATH", 13, GREEN, ft.FontWeight.W_900),
+                            text("FYP DELIVERY", 13, GREEN, ft.FontWeight.W_900),
                         ],
                         spacing=10,
                     ),
@@ -341,7 +341,7 @@ class FletDashboard:
                     primary_button("ENTER CONSOLE", login, ft.Icons.LOGIN),
                     text(self.state.error, 12, RED) if self.state.error else ft.Container(height=0),
                     ft.Container(expand=True),
-                    text("Find Your Path / AI Delivery Console / Do an AI Cuoi Khoa", 11, MUTED),
+                    text("FYP Delivery / AI Delivery Console / Do an AI Cuoi Khoa", 11, MUTED),
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 spacing=16,

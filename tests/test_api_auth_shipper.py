@@ -65,7 +65,7 @@ def test_auth_login_and_me():
 def test_root_serves_python_owned_ui():
     response = client.get("/")
     assert response.status_code == 200
-    assert "Find Your Path" in response.text
+    assert "FYP Delivery" in response.text
     assert "flutter_bootstrap.js" in response.text
 
     bootstrap = client.get("/flutter_bootstrap.js")
@@ -75,7 +75,7 @@ def test_root_serves_python_owned_ui():
 def test_map_route_serves_leaflet_world_map():
     response = client.get("/map?path=W1,A4,D1&start=W1&goal=D1")
     assert response.status_code == 200
-    assert "Find Your Path / Live Map" in response.text
+    assert "FYP Delivery / Live Map" in response.text
     assert "leaflet@1.9.4" in response.text
     assert "W1" in response.text
     assert "D1" in response.text
