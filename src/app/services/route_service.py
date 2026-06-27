@@ -8,7 +8,6 @@ from app.algorithms.complex import complex_search
 from app.algorithms.constraints import check_route_constraints, solve_delivery_csp
 from app.algorithms.delivery import DELIVERY_ALGORITHMS, selected_orders
 from app.algorithms.events import expectimax_event_choice, replan_after_event
-from app.algorithms.rl import q_learning_demo
 from app.algorithms.search import SEARCH_ALGORITHMS, astar
 from app.data.scenario import default_scenario, load_osm_cached_scenario
 from app.models.schemas import (
@@ -21,7 +20,6 @@ from app.models.schemas import (
     EventSimulateRequest,
     Order,
     PathfindingRequest,
-    RLTrainRequest,
     Scenario,
     TraceStep,
     UserPublic,
@@ -278,28 +276,6 @@ def run_adversarial_search(request: AdversarialSearchRequest, user: UserPublic) 
         ),
         traceSteps=_enrich_trace_steps(result["traceSteps"]),
     )
-
-
-def train_rl(request: RLTrainRequest, user: UserPublic) -> AlgorithmResponse:
-    assert_algorithm_allowed(user, "q_learning")
-    scenario = scenario_or_default(request.scenario)
-    started = perf_counter()
-    result = q_learning_demo(scenario, request.episodes, request.alpha, request.gamma, request.epsilon, request.debug)
-    runtime_ms = (perf_counter() - started) * 1000
-    return AlgorithmResponse(
-        path=result["path"],
-        visitedNodes=result["visited"],
-        runtimeMs=round(runtime_ms, 3),
-        metrics={
-            "episodes": result["episodes"],
-            "averageReward": result["averageReward"],
-            "qTable": result["qTable"],
-            "rewardHistory": result["rewardHistory"],
-        },
-        explanation="Q-Learning hoc chinh sach di tu kho den don xa nhat bang thuong/phat tren do thi nho.",
-        traceSteps=_enrich_trace_steps(result["traceSteps"]),
-    )
-
 
 def _order_dropoff(order: Order) -> str:
     return order.dropoff_node_id or order.node_id

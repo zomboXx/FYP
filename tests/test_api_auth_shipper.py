@@ -342,7 +342,7 @@ def test_complex_and_csp_endpoints_return_structured_debug_traces():
     assert csp_body["metrics"]["assignment"]
 
 
-def test_permissions_show_six_active_groups_and_rl_endpoint_remains_compatible():
+def test_permissions_show_six_active_groups_and_no_rl_endpoint():
     token = login("admin", "admin123")
     permissions = client.get("/api/admin/permissions", headers=auth(token))
     assert permissions.status_code == 200
@@ -350,9 +350,10 @@ def test_permissions_show_six_active_groups_and_rl_endpoint_remains_compatible()
     assert groups == {"uninformed", "informed", "local_search", "complex", "csp", "adversarial"}
     assert all(row["algorithmName"] != "q_learning" for row in permissions.json())
 
-    legacy = client.post("/api/rl/train", json={"episodes": 2, "debug": False}, headers=auth(token))
-    assert legacy.status_code == 200
-    assert legacy.json()["metrics"]["episodes"] == 2
+    openapi = client.get("/openapi.json")
+    assert "/api/rl/train" not in openapi.json()["paths"]
+    removed = client.post("/api/rl/train", json={"episodes": 2, "debug": False}, headers=auth(token))
+    assert removed.status_code in {404, 405}
 
 
 def test_osm_cache_loads_default_scenario():

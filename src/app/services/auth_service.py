@@ -54,10 +54,13 @@ ACTIVE_ALGORITHM_GROUPS = {
     "ucs": "uninformed",
     "greedy": "informed",
     "astar": "informed",
+    "simple_hill_climbing": "local_search",
     "hill_climbing": "local_search",
-    "simulated_annealing": "local_search",
+    "steepest_ascent": "local_search",
+    "sideways_hill_climbing": "local_search",
+    "random_restart": "local_search",
     "local_beam": "local_search",
-    "genetic": "local_search",
+    "simulated_annealing": "local_search",
     "backtracking": "csp",
     "forward_checking": "csp",
     "belief_state": "complex",
@@ -68,7 +71,6 @@ ACTIVE_ALGORITHM_GROUPS = {
 }
 LEGACY_ALGORITHM_GROUPS = {
     "constraint": "csp",
-    "q_learning": "reinforcement_learning",
 }
 ALGORITHM_GROUPS = {**ACTIVE_ALGORITHM_GROUPS, **LEGACY_ALGORITHM_GROUPS}
 MIN_AVAILABLE_ORDERS = 7
@@ -230,7 +232,7 @@ def seed_demo_data(db: sqlite3.Connection) -> None:
     for group in ["standard", "priority"]:
         for name, algorithm_group in ALGORITHM_GROUPS.items():
             enabled = 1 if group == "priority" or name in {
-                "bfs", "ucs", "astar", "hill_climbing", "constraint", "forward_checking",
+                "bfs", "ucs", "astar", "simple_hill_climbing", "hill_climbing", "constraint", "forward_checking",
                 "online_replan", "expectimax", "minimax",
             } else 0
             db.execute(

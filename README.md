@@ -1,34 +1,62 @@
-# FYP: Find Your Path
+# Find Your Path
 
 **Smart Urban Delivery Planner**  
-**Trợ lý tối ưu giao hàng xe máy đô thị**
+Trợ lý lập lộ trình giao hàng xe máy trong đô thị Việt Nam.
 
-Find Your Path là MVP cho đồ án AI cuối khóa: mô phỏng bài toán giao hàng xe máy trong đô thị Việt Nam và so sánh 6 nhóm thuật toán AI trong cùng một bối cảnh giao hàng có ràng buộc.
+Find Your Path là MVP cho đồ án AI cuối khóa. Ứng dụng mô phỏng quy trình giao hàng, cho phép admin bật/tắt nhóm thuật toán theo nhóm shipper, shipper nhận đơn và hệ thống lập lộ trình bằng các thuật toán được cài đặt trong project.
 
-Bản hiện tại tập trung vào demo bảo vệ đồ án: đăng nhập, admin bật/tắt thuật toán theo nhóm shipper, shipper nhận đơn và lập lộ trình, bản đồ, và Defense Lab để debug từng bước thuật toán.
+## Demo
 
-## Demo đã triển khai
+Web app: <https://find-your-path-fyp.vercel.app>
 
-URL web app: https://find-your-path-fyp.vercel.app
+Bản deploy hiện tại dùng SQLite tạm thời cho mục đích demo. Dữ liệu trên Vercel có thể reset khi cold start, redeploy hoặc function instance thay đổi.
 
-Ghi chú: bản deploy hiện tại dùng SQLite tạm thời cho demo/vấn đáp AI. Dữ liệu trên Vercel có thể reset khi cold start, redeploy hoặc function instance thay đổi.
+## Tính năng chính
 
-## Kiến trúc
+- Đăng nhập với vai trò admin và shipper.
+- Admin quản lý quyền sử dụng thuật toán theo nhóm shipper.
+- Shipper xem đơn khả dụng, nhận đơn, lập tuyến và hoàn tất đơn.
+- Bản đồ Leaflet/OpenStreetMap hiển thị điểm nhận, điểm giao và tuyến đường.
+- Defense Lab hỗ trợ quan sát kết quả và debug từng nhóm thuật toán.
 
-- Backend: Python 3.11+, FastAPI, Pydantic, pytest.
-- UI: Python Flet single-page UI mounted vào FastAPI tại `/`.
-- Map: Leaflet/Flet map, OpenStreetMap tile, route do thuật toán Python của project tính.
-- AI core: Uninformed Search, Informed Search, Local Search, Complex Environment, CSP, Adversarial Search.
-- Auth/database: JWT HS256, PBKDF2 password hash, SQLite demo/runtime.
-- Source: `src/app`; tests: `tests`; scripts: `scripts`; docs: `docs`.
-- OSM cache: `src/app/data/osm_hcm_q1.json`.
+Route được tính bởi code Python trong project, không gọi Google Directions, OSRM hoặc routing service bên ngoài để thay thế thuật toán.
 
-Project không cần Node/npm để chạy local demo. Browser nhận Flet web client, UI state được cập nhật từ Python qua WebSocket.
+## Công nghệ
 
-## Cài đặt và chạy local
+- Python 3.11+
+- FastAPI, Pydantic
+- Flet/Flet Web
+- Leaflet/OpenStreetMap
+- SQLite cho dữ liệu demo/runtime
+- pytest cho kiểm thử
+
+## Cấu trúc thư mục
+
+```text
+src/app/api          API routers
+src/app/ui           UI Flet và Leaflet
+src/app/algorithms   Thuật toán lập tuyến và AI
+src/app/services     Service nghiệp vụ
+src/app/models       Schema API
+src/app/data         Dữ liệu cache/demo
+tests                Kiểm thử
+scripts              Script hỗ trợ
+docs                 Tài liệu BA, demo, thuật toán và báo cáo
+```
+
+## Chạy local
+
+Cách khuyến nghị trên Windows:
 
 ```powershell
-cd D:\TAI_LIEU_HOC_TAP_DAI_HOC\PersonalPrj\FYP
+powershell -ExecutionPolicy Bypass -File .\run_app.ps1
+```
+
+Script sẽ kiểm tra dependency, chọn port phù hợp nếu `8000` đang bận và in URL trên terminal.
+
+Cách chạy thủ công:
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -38,16 +66,17 @@ uvicorn app.main:app --reload
 
 Mở app tại `http://127.0.0.1:8000`. API nằm dưới prefix `/api`.
 
-## Chạy ổn định trên Windows
+## Hướng dẫn bằng hình ảnh
 
-Nên dùng script này khi demo để tránh sai Python, thiếu dependency hoặc port 8000 đang bận:
+Khu vực này được dành cho GIF hoặc video hướng dẫn cài đặt và chạy demo.
 
-```powershell
-cd D:\TAI_LIEU_HOC_TAP_DAI_HOC\PersonalPrj\FYP
-powershell -ExecutionPolicy Bypass -File .\run_app.ps1
-```
+Gợi ý nội dung nên bổ sung sau:
 
-Script sẽ cài dependency nếu thiếu, tự chuyển port nếu 8000 đang bận, và in URL trên terminal.
+- Cài môi trường và chạy `run_app.ps1`.
+- Đăng nhập bằng tài khoản demo.
+- Admin bật/tắt thuật toán cho nhóm shipper.
+- Shipper nhận đơn, lập tuyến và xem kết quả trên bản đồ.
+- Defense Lab quan sát trace/debug của thuật toán.
 
 ## Tài khoản demo
 
@@ -57,21 +86,21 @@ Script sẽ cài dependency nếu thiếu, tự chuyển port nếu 8000 đang b
 | `shipper_a` | `shipper123` | On-demand: Food/Ride, current -> pickup -> dropoff |
 | `shipper_b` | `shipper123` | Depot delivery: Parcel/Grocery, xuất phát từ kho |
 
-## Kiểm thử
+## Kiểm tra
 
-Chạy hook bắt buộc trước demo, commit hoặc deploy:
+Chạy hook trước khi demo, commit hoặc deploy:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\pre_check.ps1
 ```
 
-Hook compile source, chạy pytest, và scan `src`/`api`/`tests` để tránh `TODO`, `FIXME`, debug `print`, `console.log`, hoặc code bị comment-out.
+Hook sẽ compile source, chạy test và scan các dấu hiệu code chưa sạch như `TODO`, `FIXME`, debug `print`, `console.log` hoặc code bị comment-out.
 
-## Deploy Vercel
+## Deploy
 
-Vercel deploy hiện tại phù hợp cho demo, không phải production storage.
+Vercel hiện phù hợp cho demo, chưa phải cấu hình production storage.
 
-Biến môi trường cần có trên Vercel:
+Biến môi trường cần có:
 
 ```text
 FYP_JWT_SECRET=<chuỗi-bí-mật-dài-ngẫu-nhiên>
@@ -84,62 +113,24 @@ Tùy chọn:
 FYP_DB_PATH=/tmp/fyp.sqlite
 ```
 
-Nếu không set `FYP_DB_PATH`, app tự dùng:
-
-- Local: `src/app/data/fyp.sqlite`
-- Vercel: `/tmp/fyp.sqlite`
-
-Domain riêng chưa cần cho giai đoạn vấn đáp. Sau này có thể thêm domain trong Vercel Project Settings -> Domains.
-
-## Lộ trình storage
-
-SQLite hiện tại phù hợp cho demo thuật toán vì app tự seed user, permission và đơn hàng. Trên Vercel, SQLite chỉ nên dùng tạm thời vì filesystem function là read-only ngoài `/tmp`, và `/tmp` không phải storage bền vững.
-
-Hướng mở rộng sản phẩm:
-
-1. Tách lớp data-access cho users, permissions, orders và assignments.
-2. Chuyển storage bền vững sang Postgres, ưu tiên Neon hoặc Supabase.
-3. Giữ OSM cache là JSON read-only.
-4. Nếu thêm custom node/edge bền vững, tạo bảng DB riêng thay vì ghi đè `osm_hcm_q1.json`.
-
-## API chính
-
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `GET /api/admin/permissions`
-- `PATCH /api/admin/permissions`
-- `GET /api/orders/available`
-- `POST /api/shipper/orders/accept`
-- `POST /api/shipper/orders/complete`
-- `POST /api/shipper/routes/plan`
-- `GET /api/scenario/default`
-- `POST /api/pathfinding/run`
-- `POST /api/delivery/optimize`
-- `POST /api/constraints/check`
-- `POST /api/csp/solve`
-- `POST /api/complex/run`
-- `POST /api/events/simulate`
-- `POST /api/adversarial/run`
-- `GET /api/health`
-
-Mỗi response thuật toán gồm `path`, `visitedNodes`, `metrics`, `runtimeMs`, và `explanation`. Khi gửi `debug=true`, response có thêm `traceSteps` và `debugData` để UI trình bày frontier/visited, g-h-f, belief state, CSP domain/assignment hoặc alpha-beta.
+Nếu không set `FYP_DB_PATH`, app dùng `src/app/data/fyp.sqlite` khi chạy local và `/tmp/fyp.sqlite` khi chạy trên Vercel.
 
 ## Tài liệu
 
-- `docs/business-analysis-handover.md`: nghiệp vụ, scope, stakeholder, flow, acceptance criteria.
-- `docs/database-guide.md`: cách xem SQLite local và ghi chú storage Vercel.
-- `docs/demo-script.md`: kịch bản demo 5-7 phút.
-- `docs/algorithm-comparison.md`: vai trò, điểm mạnh và hạn chế của từng thuật toán.
+- `docs/business-analysis-handover.md`: nghiệp vụ, scope, stakeholder, flow và acceptance criteria.
+- `docs/demo-script.md`: kịch bản demo ngắn.
+- `docs/algorithm-comparison.md`: so sánh vai trò, điểm mạnh và hạn chế của từng nhóm thuật toán.
+- `docs/database-guide.md`: cách xem SQLite local và ghi chú storage trên Vercel.
 - `docs/ui-ux-overview.md`: tổng quan UI/UX.
 - `docs/report-outline.md`: đề cương báo cáo học thuật.
 
-## Tái tạo OSM cache
+## Ghi chú dữ liệu bản đồ
 
-Chỉ cần chạy khi muốn lấy lại dữ liệu từ OpenStreetMap/Overpass:
+OSM graph cache nằm ở `src/app/data/osm_hcm_q1.json`. Khi demo, app dùng cache local để tránh phụ thuộc mạng.
+
+Chỉ cần tái tạo cache khi muốn lấy lại dữ liệu từ OpenStreetMap/Overpass:
 
 ```powershell
 python -m pip install osmnx
 python scripts/import_osm_graph.py
 ```
-
-Lúc demo, app dùng cache local để tránh lỗi mạng.

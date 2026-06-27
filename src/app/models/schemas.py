@@ -74,7 +74,15 @@ class PathfindingRequest(BaseModel):
 
 
 class DeliveryOptimizeRequest(BaseModel):
-    algorithm: Literal["hill_climbing", "simulated_annealing", "local_beam", "genetic"]
+    algorithm: Literal[
+        "simple_hill_climbing",
+        "hill_climbing",
+        "steepest_ascent",
+        "sideways_hill_climbing",
+        "random_restart",
+        "local_beam",
+        "simulated_annealing",
+    ]
     orderIds: list[str] | None = None
     capacityKg: float | None = None
     startId: str | None = None
@@ -122,16 +130,6 @@ class AdversarialSearchRequest(BaseModel):
     disruptionBudget: int = Field(default=1, ge=1, le=2)
     debug: bool = False
     scenario: Scenario | None = None
-
-
-class RLTrainRequest(BaseModel):
-    episodes: int = Field(default=80, ge=1, le=1000)
-    alpha: float = Field(default=0.35, ge=0.01, le=1)
-    gamma: float = Field(default=0.85, ge=0, le=1)
-    epsilon: float = Field(default=0.25, ge=0, le=1)
-    debug: bool = False
-    scenario: Scenario | None = None
-
 
 class TraceStep(BaseModel):
     stepIndex: int
@@ -256,7 +254,15 @@ class CompleteOrderRequest(BaseModel):
 
 
 class ShipperPlanRequest(BaseModel):
-    algorithm: Literal["hill_climbing", "simulated_annealing", "local_beam", "genetic"] = "hill_climbing"
+    algorithm: Literal[
+        "simple_hill_climbing",
+        "hill_climbing",
+        "steepest_ascent",
+        "sideways_hill_climbing",
+        "random_restart",
+        "local_beam",
+        "simulated_annealing",
+    ] = "simple_hill_climbing"
     startId: str | None = None
     routingStrategy: Literal["nearest_neighbor", "global_optimization"] = "global_optimization"
     debug: bool = True

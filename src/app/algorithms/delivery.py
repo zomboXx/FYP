@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import random
-from itertools import permutations
 
 from app.algorithms.search import astar
 from app.models.schemas import DeliveryState, Order, Scenario, TraceStep
@@ -106,6 +105,63 @@ def _order_state(orders: list[Order]) -> list[str]:
 
 def _order_route(scenario: Scenario, orders: list[Order]) -> list[str]:
     return route_stops_for_orders(scenario, orders)
+
+
+def _state_key(orders: list[Order]) -> tuple[str, ...]:
+    return tuple(order.id for order in orders)
+
+
+def _state_cost(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None) -> float:
+    return float(evaluate_delivery_order(scenario, orders, capacity_kg)["totalCost"])
+
+
+def _state_value(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None) -> float:
+    return -_state_cost(scenario, orders, capacity_kg)
+
+
+def _state_node(scenario: Scenario, orders: list[Order]) -> str:
+    if not orders:
+        return scenario.depot_id
+    return orders[0].pickup_node_id or orders[0].node_id or scenario.depot_id
+
+
+def _swap_neighbors(orders: list[Order]) -> list[tuple[int, int, list[Order]]]:
+    neighbors: list[tuple[int, int, list[Order]]] = []
+    for i in range(len(orders)):
+        for j in range(i + 1, len(orders)):
+            candidate = orders[:]
+            candidate[i], candidate[j] = candidate[j], candidate[i]
+            neighbors.append((i, j, candidate))
+    return neighbors
+
+
+def _trace_local_state(
+    trace_steps: list[TraceStep],
+    scenario: Scenario,
+    phase: str,
+    state: list[Order],
+    cost: float,
+    reason: str,
+    debug_data: dict,
+) -> None:
+    _append_trace(
+        trace_steps,
+        phase,
+        _state_node(scenario, state),
+        _order_route(scenario, state),
+        cost,
+        reason,
+        {
+            "traceType": "local_search",
+            "state": _order_state(state),
+            "h": round(cost, 2),
+            "value": round(-cost, 2),
+            "bestCost": round(cost, 2),
+            "bestValue": round(-cost, 2),
+            **debug_data,
+        },
+        heuristic=cost,
+    )
 
 
 def evaluate_delivery_order(
@@ -244,110 +300,326 @@ def _nearest_neighbor(scenario: Scenario, orders: list[Order]) -> list[Order]:
     return planned
 
 
-def hill_climbing(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None, debug: bool = False) -> dict:
+def simple_hill_climbing(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    debug: bool = False,
+) -> dict:
     current = _nearest_neighbor(scenario, orders)
-    current_score = evaluate_delivery_order(scenario, current, capacity_kg)["totalCost"]
+    current_cost = _state_cost(scenario, current, capacity_kg)
     trace_steps: list[TraceStep] = []
     if debug:
-        _append_trace(
+        _trace_local_state(
             trace_steps,
+            scenario,
             "hill_climbing_init",
-            current[0].node_id if current else scenario.depot_id,
-            _order_route(scenario, current),
-            current_score,
-            "Khoi tao state ban dau bang nearest-neighbor; h(state) duoc anh xa thanh totalCost can giam.",
+            current,
+            current_cost,
+            "Khoi tao state ban dau. Trong demo nay h(state)=totalCost can giam, value=-h nen value cang lon cang tot.",
             {
-                "traceType": "local_search",
-                "courseConcept": "Simple Hill Climbing: xet neighbor va chap nhan neighbor dau tien tot hon.",
-                "state": _order_state(current),
-                "hCurrent": round(current_score, 2),
-                "memoryModel": "Chi giu current state va best score hien tai.",
-                "bestCost": round(current_score, 2),
+                "courseConcept": "Simple Hill Climbing / First-Improvement Hill Climbing.",
+                "rule": "Duyet neighbor theo thu tu; gap neighbor dau tien co value(neighbor) > value(current) thi di ngay.",
+                "currentValue": round(-current_cost, 2),
+                "comparison": ">",
                 "result": "INIT",
             },
-            heuristic=current_score,
         )
-    improved = True
     iterations = 0
-    while improved and iterations < 60:
-        improved = False
+    while iterations < 80:
+        moved = False
         iterations += 1
-        for i in range(len(current)):
-            for j in range(i + 1, len(current)):
-                candidate = current[:]
-                candidate[i], candidate[j] = candidate[j], candidate[i]
-                score = evaluate_delivery_order(scenario, candidate, capacity_kg)["totalCost"]
-                if debug:
-                    delta = score - current_score
-                    _append_trace(
-                        trace_steps,
-                        "hill_neighbor",
-                        candidate[0].node_id if candidate else scenario.depot_id,
-                        route_stops_for_orders(scenario, candidate),
-                        score,
-                        (
-                            f"Sinh neighbor bang swap {i}-{j}: h(neighbor)={score:.2f}, "
-                            f"h(current)={current_score:.2f}, delta={delta:.2f}."
-                        ),
-                        {
-                            "traceType": "local_search",
-                            "courseConcept": "Neighbor = trang thai sinh ra tu current state bang mot phep swap.",
-                            "state": _order_state(candidate),
-                            "currentState": _order_state(current),
-                            "candidateCost": round(score, 2),
-                            "bestCost": round(current_score, 2),
-                            "hNeighbor": round(score, 2),
-                            "hCurrent": round(current_score, 2),
-                            "delta": round(delta, 2),
-                            "swap": [i, j],
-                            "isBetter": score < current_score,
-                            "result": "ACCEPT" if score < current_score else "REJECT",
-                        },
-                        heuristic=score,
-                    )
-                if score < current_score:
-                    current, current_score = candidate, score
-                    improved = True
-                    if debug:
-                        _append_trace(
-                            trace_steps,
-                            "hill_accept",
-                            current[0].node_id,
-                            route_stops_for_orders(scenario, current),
-                            current_score,
-                            "Chap nhan neighbor dau tien tot hon vi h(neighbor) < h(current).",
-                            {
-                                "traceType": "local_search",
-                                "courseConcept": "Move to better neighbor.",
-                                "state": _order_state(current),
-                                "hCurrent": round(current_score, 2),
-                                "bestCost": round(current_score, 2),
-                                "result": "MOVE",
-                            },
-                            heuristic=current_score,
-                        )
-        if debug and not improved:
-            _append_trace(
-                trace_steps,
-                "hill_stop",
-                current[0].node_id if current else scenario.depot_id,
-                route_stops_for_orders(scenario, current),
-                current_score,
-                "Khong con neighbor tot hon trong vong nay; dung tai local optimum hoac plateau.",
-                {
-                    "traceType": "local_search",
-                    "courseConcept": "Hill Climbing khong day du va khong dam bao toi uu vi co the ket cuc bo.",
-                    "state": _order_state(current),
-                    "hCurrent": round(current_score, 2),
-                    "trap": "local_optimum_or_plateau",
-                    "bestCost": round(current_score, 2),
-                    "result": "STOP",
-                },
-                heuristic=current_score,
-            )
+        current_value = -current_cost
+        for i, j, candidate in _swap_neighbors(current):
+            candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+            candidate_value = -candidate_cost
+            if debug:
+                _trace_local_state(
+                    trace_steps,
+                    scenario,
+                    "first_better_check",
+                    candidate,
+                    candidate_cost,
+                    f"Thu neighbor swap {i}-{j}: value={candidate_value:.2f}, current={current_value:.2f}.",
+                    {
+                        "courseConcept": "Neighbor duoc tao bang swap hai vi tri trong permutation don hang.",
+                        "currentState": _order_state(current),
+                        "currentValue": round(current_value, 2),
+                        "candidateValue": round(candidate_value, 2),
+                        "deltaValue": round(candidate_value - current_value, 2),
+                        "swap": [i, j],
+                        "comparison": "candidateValue > currentValue",
+                        "result": "ACCEPT_FIRST_BETTER" if candidate_value > current_value else "REJECT",
+                    },
+                )
+            if candidate_value > current_value:
+                current = candidate
+                current_cost = candidate_cost
+                moved = True
+                break
+        if not moved:
+            if debug:
+                _trace_local_state(
+                    trace_steps,
+                    scenario,
+                    "hill_stop",
+                    current,
+                    current_cost,
+                    "Khong tim thay neighbor nao co value lon hon; dung tai local optimum.",
+                    {
+                        "courseConcept": "Hill Climbing co the ket o cuc tri cuc bo vi chi nhin neighbor gan.",
+                        "trap": "local_optimum",
+                        "result": "STOP",
+                    },
+                )
+            break
     result = evaluate_delivery_order(scenario, current, capacity_kg, debug)
     result["iterations"] = iterations
     result["traceSteps"] = trace_steps + result["traceSteps"]
+    return result
+
+
+def steepest_ascent_hill_climbing(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    debug: bool = False,
+) -> dict:
+    current = _nearest_neighbor(scenario, orders)
+    current_cost = _state_cost(scenario, current, capacity_kg)
+    trace_steps: list[TraceStep] = []
+    iterations = 0
+    while iterations < 80:
+        iterations += 1
+        current_value = -current_cost
+        best_neighbor = current
+        best_cost = current_cost
+        best_value = current_value
+        best_swap: list[int] | None = None
+        neighbor_count = 0
+        for i, j, candidate in _swap_neighbors(current):
+            neighbor_count += 1
+            candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+            candidate_value = -candidate_cost
+            if candidate_value > best_value:
+                best_neighbor = candidate
+                best_cost = candidate_cost
+                best_value = candidate_value
+                best_swap = [i, j]
+        if debug:
+            _trace_local_state(
+                trace_steps,
+                scenario,
+                "steepest_scan",
+                best_neighbor,
+                best_cost,
+                f"Da quet {neighbor_count} neighbor va chon neighbor co value lon nhat.",
+                {
+                    "courseConcept": "Steepest-Ascent Hill Climbing: xet tat ca neighbor, chon neighbor tot nhat.",
+                    "currentState": _order_state(current),
+                    "currentValue": round(current_value, 2),
+                    "bestNeighborValue": round(best_value, 2),
+                    "bestSwap": best_swap,
+                    "neighborCount": neighbor_count,
+                    "comparison": "bestNeighborValue > currentValue",
+                    "result": "MOVE" if best_value > current_value else "STOP",
+                },
+            )
+        if best_value <= current_value:
+            break
+        current = best_neighbor
+        current_cost = best_cost
+    result = evaluate_delivery_order(scenario, current, capacity_kg, debug)
+    result["iterations"] = iterations
+    result["traceSteps"] = trace_steps + result["traceSteps"]
+    return result
+
+
+def sideways_hill_climbing(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    debug: bool = False,
+    sideways_limit: int = 12,
+) -> dict:
+    current = _nearest_neighbor(scenario, orders)
+    current_cost = _state_cost(scenario, current, capacity_kg)
+    trace_steps: list[TraceStep] = []
+    seen = {_state_key(current)}
+    sideways_moves = 0
+    iterations = 0
+    while iterations < 80:
+        iterations += 1
+        current_value = -current_cost
+        candidates: list[tuple[float, float, int, int, list[Order]]] = []
+        for i, j, candidate in _swap_neighbors(current):
+            if _state_key(candidate) in seen:
+                continue
+            candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+            candidate_value = -candidate_cost
+            if candidate_value >= current_value:
+                candidates.append((candidate_value, candidate_cost, i, j, candidate))
+        if not candidates:
+            if debug:
+                _trace_local_state(
+                    trace_steps,
+                    scenario,
+                    "sideways_stop",
+                    current,
+                    current_cost,
+                    "Khong con neighbor nao thoa value(neighbor) >= value(current) ma chua di qua.",
+                    {
+                        "courseConcept": "Sideways Moves dung dieu kien >= de di ngang tren plateau.",
+                        "sidewaysMoves": sideways_moves,
+                        "sidewaysLimit": sideways_limit,
+                        "result": "STOP",
+                    },
+                )
+            break
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        candidate_value, candidate_cost, i, j, candidate = candidates[0]
+        is_sideways = candidate_value == current_value
+        if is_sideways and sideways_moves >= sideways_limit:
+            if debug:
+                _trace_local_state(
+                    trace_steps,
+                    scenario,
+                    "sideways_limit",
+                    current,
+                    current_cost,
+                    "Da dat gioi han sideways move nen dung de tranh lap vo han tren plateau.",
+                    {
+                        "courseConcept": "Sideways Moves can limit de tranh di vong lap.",
+                        "sidewaysMoves": sideways_moves,
+                        "sidewaysLimit": sideways_limit,
+                        "result": "STOP",
+                    },
+                )
+            break
+        sideways_moves = sideways_moves + 1 if is_sideways else 0
+        if debug:
+            _trace_local_state(
+                trace_steps,
+                scenario,
+                "sideways_move",
+                candidate,
+                candidate_cost,
+                f"Chap nhan swap {i}-{j} vi value(neighbor) >= value(current).",
+                {
+                    "courseConcept": "Hill Climbing with Sideways Moves.",
+                    "currentState": _order_state(current),
+                    "currentValue": round(current_value, 2),
+                    "candidateValue": round(candidate_value, 2),
+                    "swap": [i, j],
+                    "comparison": ">=",
+                    "isSideways": is_sideways,
+                    "sidewaysMoves": sideways_moves,
+                    "sidewaysLimit": sideways_limit,
+                    "candidatePoolSize": len(candidates),
+                    "result": "MOVE",
+                },
+            )
+        current = candidate
+        current_cost = candidate_cost
+        seen.add(_state_key(current))
+    result = evaluate_delivery_order(scenario, current, capacity_kg, debug)
+    result["iterations"] = iterations
+    result["traceSteps"] = trace_steps + result["traceSteps"]
+    return result
+
+
+def random_restart_hill_climbing(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    debug: bool = False,
+    restarts: int = 8,
+    sideways_limit: int = 10,
+) -> dict:
+    rng = random.Random(41)
+    if len(orders) < 2:
+        result = evaluate_delivery_order(scenario, orders, capacity_kg, debug)
+        result["iterations"] = 0
+        result["restarts"] = 0
+        return result
+    trace_steps: list[TraceStep] = []
+    best_state: list[Order] = []
+    best_cost = math.inf
+    total_iterations = 0
+    restart_count = max(1, restarts)
+    for restart_index in range(restart_count):
+        current = _nearest_neighbor(scenario, orders) if restart_index == 0 else rng.sample(orders, len(orders))
+        current_cost = _state_cost(scenario, current, capacity_kg)
+        sideways_moves = 0
+        seen = {_state_key(current)}
+        if debug:
+            _trace_local_state(
+                trace_steps,
+                scenario,
+                "restart_init",
+                current,
+                current_cost,
+                f"Restart {restart_index + 1}/{restart_count}: khoi tao state {'co dinh' if restart_index == 0 else 'ngau nhien'}.",
+                {
+                    "courseConcept": "Random-Restart Hill Climbing: thu nhieu diem bat dau de thoat cuc tri cuc bo.",
+                    "restartIndex": restart_index + 1,
+                    "restartCount": restart_count,
+                    "randomized": restart_index > 0,
+                    "result": "INIT_RESTART",
+                },
+            )
+        for _ in range(40):
+            total_iterations += 1
+            current_value = -current_cost
+            pool: list[tuple[float, float, int, int, list[Order]]] = []
+            for i, j, candidate in _swap_neighbors(current):
+                if _state_key(candidate) in seen:
+                    continue
+                candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+                candidate_value = -candidate_cost
+                if candidate_value >= current_value:
+                    pool.append((candidate_value, candidate_cost, i, j, candidate))
+            if not pool:
+                break
+            better_pool = [item for item in pool if item[0] > current_value]
+            choice_pool = better_pool or pool
+            candidate_value, candidate_cost, i, j, candidate = rng.choice(choice_pool)
+            is_sideways = candidate_value == current_value
+            if is_sideways and sideways_moves >= sideways_limit:
+                break
+            sideways_moves = sideways_moves + 1 if is_sideways else 0
+            if debug:
+                _trace_local_state(
+                    trace_steps,
+                    scenario,
+                    "restart_random_move",
+                    candidate,
+                    candidate_cost,
+                    f"Chon ngau nhien trong tap neighbor thoa {'>' if better_pool else '>='}; swap {i}-{j}.",
+                    {
+                        "courseConcept": "Ket hop Sideways Moves voi random choice de moi restart co huong leo khac nhau.",
+                        "restartIndex": restart_index + 1,
+                        "currentState": _order_state(current),
+                        "currentValue": round(current_value, 2),
+                        "candidateValue": round(candidate_value, 2),
+                        "candidatePoolSize": len(pool),
+                        "betterPoolSize": len(better_pool),
+                        "comparison": ">" if better_pool else ">=",
+                        "isSideways": is_sideways,
+                        "swap": [i, j],
+                        "result": "MOVE",
+                    },
+                )
+            current = candidate
+            current_cost = candidate_cost
+            seen.add(_state_key(current))
+        if current_cost < best_cost:
+            best_state = current[:]
+            best_cost = current_cost
+    result = evaluate_delivery_order(scenario, best_state, capacity_kg, debug)
+    result["iterations"] = total_iterations
+    result["restarts"] = restart_count
+    result["traceSteps"] = trace_steps[:140] + result["traceSteps"]
     return result
 
 
@@ -359,53 +631,61 @@ def simulated_annealing(scenario: Scenario, orders: list[Order], capacity_kg: fl
         result["iterations"] = 0
         return result
     best = current[:]
-    current_score = evaluate_delivery_order(scenario, current, capacity_kg)["totalCost"]
-    best_score = current_score
-    temperature = 30.0
+    current_cost = _state_cost(scenario, current, capacity_kg)
+    current_value = -current_cost
+    best_cost = current_cost
+    best_value = current_value
+    temperature = 2.0
+    cooling_rate = 0.94
     iterations = 0
     trace_steps: list[TraceStep] = []
-    while temperature > 0.2 and iterations < 250:
+    while temperature > 0.01 and iterations < 250:
         iterations += 1
         candidate = current[:]
         i, j = rng.sample(range(len(candidate)), 2)
         candidate[i], candidate[j] = candidate[j], candidate[i]
-        score = evaluate_delivery_order(scenario, candidate, capacity_kg)["totalCost"]
-        delta = score - current_score
-        probability = 1.0 if delta < 0 else math.exp(-delta / temperature)
-        random_draw = 0.0 if delta < 0 else rng.random()
-        accept = delta < 0 or random_draw < probability
+        candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+        candidate_value = -candidate_cost
+        delta = candidate_value - current_value
+        probability = 1.0 if delta > 0 else math.exp(delta / temperature)
+        random_draw = 0.0 if delta > 0 else rng.random()
+        accept = delta > 0 or random_draw < probability
         if debug:
-            _append_trace(
+            _trace_local_state(
                 trace_steps,
+                scenario,
                 "annealing_step",
-                candidate[0].node_id,
-                route_stops_for_orders(scenario, candidate),
-                score,
+                candidate,
+                candidate_cost,
                 (
-                    f"Chon ngau nhien mot neighbor, delta=h(next)-h(current)={delta:.2f}, "
+                    f"Chon ngau nhien neighbor, delta=value(next)-value(current)={delta:.2f}, "
                     f"T={temperature:.2f}, p={probability:.3f}; {'chap nhan' if accept else 'tu choi'}."
                 ),
                 {
-                    "traceType": "local_search",
-                    "courseConcept": "Simulated Annealing: delta < 0 thi nhan, delta >= 0 thi nhan voi p=e^(-delta/T).",
-                    "state": _order_state(candidate),
+                    "courseConcept": "Simulated Annealing: delta > 0 thi nhan, delta <= 0 thi nhan voi p=e^(delta/T).",
                     "currentState": _order_state(current),
-                    "delta": round(delta, 2),
+                    "currentValue": round(current_value, 2),
+                    "candidateValue": round(candidate_value, 2),
+                    "deltaValue": round(delta, 2),
                     "temperature": round(temperature, 2),
                     "acceptanceProbability": round(probability, 4),
                     "randomDraw": round(random_draw, 4),
                     "accepted": accept,
-                    "cooling": "T = 0.95 * T",
-                    "bestCost": round(best_score, 2),
+                    "cooling": "T = 0.94 * T",
+                    "bestValue": round(best_value, 2),
+                    "swap": [i, j],
                     "result": "ACCEPT" if accept else "REJECT",
                 },
-                heuristic=score,
             )
         if accept:
-            current, current_score = candidate, score
-        if current_score < best_score:
-            best, best_score = current[:], current_score
-        temperature *= 0.95
+            current = candidate
+            current_cost = candidate_cost
+            current_value = candidate_value
+        if current_value > best_value:
+            best = current[:]
+            best_cost = current_cost
+            best_value = current_value
+        temperature *= cooling_rate
     result = evaluate_delivery_order(scenario, best, capacity_kg, debug)
     result["iterations"] = iterations
     result["traceSteps"] = trace_steps[:80] + result["traceSteps"]
@@ -436,7 +716,7 @@ def local_beam_search(scenario: Scenario, orders: list[Order], capacity_kg: floa
                     neighbor = route[:]
                     neighbor[i], neighbor[j] = neighbor[j], neighbor[i]
                     candidates.append(neighbor)
-        scored = sorted(candidates, key=lambda route: evaluate_delivery_order(scenario, route, capacity_kg)["totalCost"])
+        scored = sorted(candidates, key=lambda route: _state_value(scenario, route, capacity_kg), reverse=True)
         next_beam: list[list[Order]] = []
         for route in scored:
             if route not in next_beam:
@@ -445,29 +725,27 @@ def local_beam_search(scenario: Scenario, orders: list[Order], capacity_kg: floa
                 break
         beam = next_beam
         if debug:
-            best_score = evaluate_delivery_order(scenario, beam[0], capacity_kg)["totalCost"]
-            _append_trace(
+            best_cost = _state_cost(scenario, beam[0], capacity_kg)
+            _trace_local_state(
                 trace_steps,
+                scenario,
                 "beam_select_k_best",
-                beam[0][0].pickup_node_id or scenario.depot_id,
-                route_stops_for_orders(scenario, beam[0]),
-                best_score,
+                beam[0],
+                best_cost,
                 (
                     f"Local Beam sinh successor tu {len(beam)} state, roi giu k={len(beam)} "
-                    f"state co h(n) nho nhat; best h={best_score:.2f}."
+                    f"state co value lon nhat."
                 ),
                 {
-                    "traceType": "local_search",
                     "courseConcept": "Local Beam Search: luu dong thoi k trang thai ung vien thay vi chi 1 current.",
                     "iteration": iterations,
                     "beamSize": len(beam),
                     "candidateCount": len(candidates),
-                    "selectionRule": "chon k successor co h(n) nho nhat trong toan bo tap sinh ra",
+                    "selectionRule": "chon k successor co value=-totalCost lon nhat trong toan bo tap sinh ra",
                     "beamStates": [_order_state(route) for route in beam],
-                    "bestCost": round(best_score, 2),
+                    "bestValue": round(-best_cost, 2),
                     "result": "KEEP_K_BEST",
                 },
-                heuristic=best_score,
             )
     result = evaluate_delivery_order(scenario, beam[0], capacity_kg, debug)
     result["iterations"] = iterations
@@ -475,69 +753,16 @@ def local_beam_search(scenario: Scenario, orders: list[Order], capacity_kg: floa
     return result
 
 
-def genetic_algorithm(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None, debug: bool = False) -> dict:
-    rng = random.Random(11)
-    if len(orders) < 2:
-        result = evaluate_delivery_order(scenario, orders, capacity_kg, debug)
-        result["iterations"] = 0
-        return result
-    population = [list(p) for p in permutations(orders)] if len(orders) <= 5 else []
-    if not population:
-        base = _nearest_neighbor(scenario, orders)
-        population = [rng.sample(base, len(base)) for _ in range(24)]
-    population = population[:24]
-    generations = 35
-    trace_steps: list[TraceStep] = []
-    for generation in range(generations):
-        scored = sorted(population, key=lambda route: evaluate_delivery_order(scenario, route, capacity_kg)["totalCost"])
-        survivors = scored[:8]
-        if debug:
-            best_score = evaluate_delivery_order(scenario, survivors[0], capacity_kg)["totalCost"]
-            _append_trace(
-                trace_steps,
-                "genetic_generation",
-                survivors[0][0].node_id,
-                route_stops_for_orders(scenario, survivors[0]),
-                best_score,
-                (
-                    f"Genetic Algorithm danh gia population, chon 8 ca the tot nhat lam parents "
-                    f"o generation {generation + 1}."
-                ),
-                {
-                    "traceType": "local_search",
-                    "courseConcept": "Population-based optimization: selection -> crossover -> mutation.",
-                    "generation": generation + 1,
-                    "populationSize": len(population),
-                    "survivorCount": len(survivors),
-                    "selectionRule": "giu 8 route co h(n)=totalCost nho nhat",
-                    "crossover": "prefix cua parent 1 + thu tu con lai tu parent 2",
-                    "mutationRate": 0.35,
-                    "bestCost": round(best_score, 2),
-                    "bestState": _order_state(survivors[0]),
-                    "result": "SELECT_PARENTS",
-                },
-                heuristic=best_score,
-            )
-        children = survivors[:]
-        while len(children) < 24:
-            p1, p2 = rng.sample(survivors, 2)
-            cut = rng.randint(1, len(orders) - 1)
-            child = p1[:cut] + [order for order in p2 if order not in p1[:cut]]
-            if rng.random() < 0.35:
-                i, j = rng.sample(range(len(child)), 2)
-                child[i], child[j] = child[j], child[i]
-            children.append(child)
-        population = children
-    best = min(population, key=lambda route: evaluate_delivery_order(scenario, route, capacity_kg)["totalCost"])
-    result = evaluate_delivery_order(scenario, best, capacity_kg, debug)
-    result["iterations"] = generations
-    result["traceSteps"] = trace_steps + result["traceSteps"]
-    return result
+def hill_climbing(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None, debug: bool = False) -> dict:
+    return simple_hill_climbing(scenario, orders, capacity_kg, debug)
 
 
 DELIVERY_ALGORITHMS = {
+    "simple_hill_climbing": simple_hill_climbing,
     "hill_climbing": hill_climbing,
-    "simulated_annealing": simulated_annealing,
+    "steepest_ascent": steepest_ascent_hill_climbing,
+    "sideways_hill_climbing": sideways_hill_climbing,
+    "random_restart": random_restart_hill_climbing,
     "local_beam": local_beam_search,
-    "genetic": genetic_algorithm,
+    "simulated_annealing": simulated_annealing,
 }

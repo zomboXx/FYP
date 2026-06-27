@@ -37,10 +37,12 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "short": "LOCAL SEARCH",
         "mode": "delivery",
         "algorithms": [
-            ("hill_climbing", "Hill Climbing"),
-            ("simulated_annealing", "Simulated Annealing"),
+            ("simple_hill_climbing", "Simple Hill Climbing"),
+            ("steepest_ascent", "Steepest-Ascent"),
+            ("sideways_hill_climbing", "Sideways Moves"),
+            ("random_restart", "Random-Restart"),
             ("local_beam", "Local Beam Search"),
-            ("genetic", "Genetic Algorithm"),
+            ("simulated_annealing", "Simulated Annealing"),
         ],
     },
     "complex": {

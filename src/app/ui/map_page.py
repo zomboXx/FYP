@@ -446,9 +446,12 @@ def _render_map_html(payload: dict) -> str:
       maxLng: 106.845,
     }};
     const iconAssets = {{
-      shipperBike: "/assets/map-icons/shipper-bike.png",
-      transportTruck: "/assets/map-icons/transport-truck.png",
-      transportVan: "/assets/map-icons/transport-van.png",
+      driverBike: "/assets/map-icons/shipper-bike.png",
+      driverTruck: "/assets/map-icons/transport-truck.png",
+      driverVan: "/assets/map-icons/transport-van.png",
+      deliveryBike: "/assets/map-icons/delivery-bike.png",
+      customerOrdering: "/assets/map-icons/customer-ordering.png",
+      motorbikeTaxi: "/assets/map-icons/motorbike-taxi.png",
       pickupFood: "/assets/map-icons/pickup-food.png",
       pickupDrink: "/assets/map-icons/pickup-drink.png",
       pickupCargo: "/assets/map-icons/pickup-cargo.png",
@@ -560,14 +563,15 @@ def _render_map_html(payload: dict) -> str:
       if (normalized === "food") return iconAssets.pickupFood;
       if (normalized === "parcel") return iconAssets.pickupParcel;
       if (normalized === "grocery") return iconAssets.pickupCargo;
+      if (normalized === "ride") return iconAssets.customerOrdering;
       return iconAssets.pickupCargo;
     }}
 
-    function vehicleAsset(leg) {{
+    function vehicleAsset(leg, order) {{
       const kind = String(leg.kind || "");
-      if (kind === "warehouse_delivery" || kind === "transport_to_warehouse") return iconAssets.transportTruck;
-      if (kind === "approach_pickup") return iconAssets.shipperBike;
-      return iconAssets.shipperBike;
+      if (kind === "warehouse_delivery" || kind === "transport_to_warehouse") return iconAssets.driverTruck;
+      if (String(order.category || "").toLowerCase() === "ride") return iconAssets.motorbikeTaxi;
+      return iconAssets.deliveryBike;
     }}
 
     function addTemporaryMarker(nodeId, src, label, size = 46) {{
@@ -612,7 +616,7 @@ def _render_map_html(payload: dict) -> str:
       }}
 
       const kind = String(leg.kind || "");
-      addTemporaryMarker(leg.from, vehicleAsset(leg), kind === "warehouse_delivery" ? "Xe van chuyen" : "Shipper", 54);
+      addTemporaryMarker(leg.from, vehicleAsset(leg, order), kind === "warehouse_delivery" ? "Tai xe xe van chuyen" : "Tai xe shipper", 54);
       if (kind === "approach_pickup") {{
         addTemporaryMarker(pickup || leg.to, pickupAsset(order.category), "Diem nhan hang", 46);
       }} else if (kind === "serve_order") {{

@@ -11,7 +11,6 @@ from app.models.schemas import (
     DeliveryOptimizeRequest,
     EventSimulateRequest,
     PathfindingRequest,
-    RLTrainRequest,
     UserPublic,
 )
 from app.services.auth_service import get_current_user
@@ -23,7 +22,6 @@ from app.services.route_service import (
     run_pathfinding,
     simulate_dynamic_event,
     solve_csp,
-    train_rl,
 )
 
 
@@ -75,8 +73,3 @@ def post_adversarial_run(
     user: UserPublic = Depends(get_current_user),
 ) -> AlgorithmResponse:
     return run_adversarial_search(request, user)
-
-
-@router.post("/rl/train", response_model=AlgorithmResponse)
-def post_rl_train(request: RLTrainRequest, user: UserPublic = Depends(get_current_user)) -> AlgorithmResponse:
-    return train_rl(request, user)

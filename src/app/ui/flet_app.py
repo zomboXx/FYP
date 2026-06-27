@@ -68,9 +68,12 @@ from app.ui.theme import (
 
 MAP_ICON_BASE = "/assets/map-icons"
 MAP_ICONS = {
-    "shipper_bike": f"{MAP_ICON_BASE}/shipper-bike.png",
-    "transport_truck": f"{MAP_ICON_BASE}/transport-truck.png",
-    "transport_van": f"{MAP_ICON_BASE}/transport-van.png",
+    "driver_bike": f"{MAP_ICON_BASE}/shipper-bike.png",
+    "driver_truck": f"{MAP_ICON_BASE}/transport-truck.png",
+    "driver_van": f"{MAP_ICON_BASE}/transport-van.png",
+    "delivery_bike": f"{MAP_ICON_BASE}/delivery-bike.png",
+    "customer_ordering": f"{MAP_ICON_BASE}/customer-ordering.png",
+    "motorbike_taxi": f"{MAP_ICON_BASE}/motorbike-taxi.png",
     "pickup_food": f"{MAP_ICON_BASE}/pickup-food.png",
     "pickup_drink": f"{MAP_ICON_BASE}/pickup-drink.png",
     "pickup_cargo": f"{MAP_ICON_BASE}/pickup-cargo.png",
@@ -563,12 +566,37 @@ class FletDashboard:
                 self.state.scenario.depot_id,
             )
 
+    def order_category_label(self, category: str | None) -> str:
+        return {
+            "food": "Đồ ăn",
+            "ride": "Chở người",
+            "parcel": "Bưu kiện",
+            "grocery": "Đi chợ",
+        }.get(str(category or ""), str(category or "-"))
+
+    def order_urgency_label(self, urgency: str | None) -> str:
+        return {
+            "urgent": "Gấp",
+            "normal": "Thường",
+            "low": "Thấp",
+        }.get(str(urgency or ""), str(urgency or "-"))
+
+    def sync_shipper_position_to_route_end(self) -> None:
+        result = self.state.result
+        if self.state.workspace != "shipper" or not result or not result.path:
+            return
+        if self.state.shipper_playback_index < len(result.path) - 1:
+            return
+        final_node = result.path[-1]
+        if self.state.scenario and any(node.id == final_node for node in self.state.scenario.nodes):
+            self.state.shipper_start_id = final_node
+
     def shipper_view(self) -> ft.Control:
         profile = shipper_operation_profile(self.state.user) if self.state.user else "on_demand"
         category_options = (
-            [("all", "Food + Ride"), ("food", "Food"), ("ride", "Cho nguoi")]
+            [("all", "Đồ ăn + Chở người"), ("food", "Đồ ăn"), ("ride", "Chở người")]
             if profile == "on_demand"
-            else [("all", "Parcel + Grocery"), ("parcel", "Hang hoa"), ("grocery", "Di cho")]
+            else [("all", "Bưu kiện + Đi chợ"), ("parcel", "Bưu kiện"), ("grocery", "Đi chợ")]
         )
         def update_category(event: ft.ControlEvent) -> None:
             self.state.category_filter = event.control.value
@@ -605,7 +633,7 @@ class FletDashboard:
                     return
                 response = plan_accepted_orders(
                     DeliveryOptimizeRequest(
-                        algorithm="hill_climbing",
+                        algorithm="simple_hill_climbing",
                         startId=self.state.shipper_start_id,
                         routingStrategy=self.state.shipper_routing_strategy,
                         scenario=self.state.scenario,
@@ -635,15 +663,15 @@ class FletDashboard:
                                     text(order.id, 13, TEXT, ft.FontWeight.W_800),
                                     text(
                                         (
-                                            f"{order.category}/{order.urgency} | Don tai {order.pickupNodeId} -> Tra tai {order.dropoffNodeId}"
+                                            f"{self.order_category_label(order.category)}/{self.order_urgency_label(order.urgency)} | Đón tại {order.pickupNodeId} -> Trả tại {order.dropoffNodeId}"
                                             if profile == "on_demand"
-                                            else f"{order.category}/{order.urgency} | Kho {self.state.scenario.depot_id} -> Giao {order.dropoffNodeId}"
+                                            else f"{self.order_category_label(order.category)}/{self.order_urgency_label(order.urgency)} | Kho {self.state.scenario.depot_id} -> Giao {order.dropoffNodeId}"
                                         ),
                                         11,
                                         MUTED,
                                     ),
                                     text(
-                                        f"{order.demandKg:.1f} kg | Uu tien {order.priority}/5 | Deadline {order.dueMin} phut",
+                                        f"{order.demandKg:.1f} kg | Ưu tiên {order.priority}/5 | Hạn giao {order.dueMin} phút",
                                         11,
                                         MUTED,
                                     ),
@@ -671,9 +699,9 @@ class FletDashboard:
                             ft.Row(
                                 [
                                     text(order.id, 14, TEXT, ft.FontWeight.W_900),
-                                    pill(order.category.upper(), "cyan"),
+                                    pill(self.order_category_label(order.category).upper(), "cyan"),
                                     pill(
-                                        order.urgency.upper(),
+                                        self.order_urgency_label(order.urgency).upper(),
                                         "yellow" if order.urgency == "urgent" else "dark",
                                     ),
                                 ],
@@ -704,10 +732,10 @@ class FletDashboard:
         controls_panel = panel(
             ft.Column(
                 [
-                    ft.Row([text("ORDERS", 22, TEXT, ft.FontWeight.W_900), pill(f"{len(self.state.orders)} LIVE", "green")]),
-                    pill("ON-DEMAND: CURRENT -> PICKUP -> DROPOFF" if profile == "on_demand" else "DEPOT DELIVERY: WAREHOUSE -> STOPS", "cyan"),
+                    ft.Row([text("ĐƠN HÀNG", 22, TEXT, ft.FontWeight.W_900), pill(f"{len(self.state.orders)} đơn", "green")]),
+                    pill("LINH HOẠT: HIỆN TẠI -> NHẬN -> GIAO" if profile == "on_demand" else "KHO: KHO -> ĐIỂM GIAO", "cyan"),
                     dropdown(
-                        "Live map",
+                        "Bản đồ",
                         str(self.state.active_map_id or ""),
                         self.map_options(),
                         lambda event: self.safe(lambda: self.choose_map(int(event.control.value))),
@@ -715,15 +743,15 @@ class FletDashboard:
                     if self.state.maps
                     else ft.Container(height=0),
                     dropdown(
-                        "Category",
+                        "Loại đơn",
                         self.state.category_filter,
                         category_options,
                         update_category,
                     ),
                     dropdown(
-                        "Urgency",
+                        "Độ gấp",
                         self.state.urgency_filter,
-                        [("all", "Tat ca gap"), ("urgent", "Gap"), ("normal", "Thuong"), ("low", "Thap")],
+                        [("all", "Tất cả"), ("urgent", "Gấp"), ("normal", "Thường"), ("low", "Thấp")],
                         update_urgency,
                     ),
                     ft.Container(
@@ -734,22 +762,20 @@ class FletDashboard:
                         border_radius=4,
                     ),
                     dropdown(
-                        "Vi tri hien tai",
+                        "Vị trí hiện tại",
                         self.state.shipper_start_id,
                         [
                             (node.id, f"{node.id} - {node.name}")
                             for node in self.state.scenario.nodes
-                            if profile == "on_demand" and node.type in {"intersection", "landmark"}
-                        ]
-                        or [(self.state.scenario.depot_id, self.state.scenario.depot_id)],
+                        ],
                         lambda event: self.set_field("shipper_start_id", event.control.value),
                     ),
                     dropdown(
-                        "Chien luoc giao hang",
+                        "Chiến lược giao hàng",
                         self.state.shipper_routing_strategy,
                         [
-                            ("nearest_neighbor", "Diem gan nhat tiep theo"),
-                            ("global_optimization", "Toi uu toan bo tuyen"),
+                            ("nearest_neighbor", "Điểm gần nhất tiếp theo"),
+                            ("global_optimization", "Tối ưu toàn bộ tuyến"),
                         ],
                         lambda event: self.set_field("shipper_routing_strategy", event.control.value),
                     )
@@ -780,8 +806,8 @@ class FletDashboard:
                     ),
                     ft.Row(
                         [
-                            outline_button("Nhan don da chon", accept_selected),
-                            primary_button("Lap lo trinh", plan_route, ft.Icons.ROUTE),
+                            outline_button("Nhận đơn đã chọn", accept_selected),
+                            primary_button("Lập lộ trình", plan_route, ft.Icons.ROUTE),
                         ],
                         wrap=True,
                     ),
@@ -1299,6 +1325,7 @@ class FletDashboard:
         )
         if self.state.shipper_playback_index >= len(path) - 1:
             self.stop_shipper_playback()
+            self.sync_shipper_position_to_route_end()
         self.render()
         self.maybe_prompt_delivery_confirmation()
 
@@ -1327,6 +1354,7 @@ class FletDashboard:
             self.state.shipper_playback_index += 1
             if self.state.shipper_playback_index >= len(path) - 1:
                 self.stop_shipper_playback()
+                self.sync_shipper_position_to_route_end()
             self.render()
             if self.maybe_prompt_delivery_confirmation():
                 return
@@ -1371,13 +1399,17 @@ class FletDashboard:
             return MAP_ICONS["pickup_parcel"]
         if normalized == "grocery":
             return MAP_ICONS["pickup_cargo"]
+        if normalized == "ride":
+            return MAP_ICONS["customer_ordering"]
         return MAP_ICONS["pickup_cargo"]
 
-    def vehicle_icon_src(self, leg: dict[str, Any] | None) -> str:
+    def vehicle_icon_src(self, leg: dict[str, Any] | None, category: str | None = None) -> str:
         kind = str((leg or {}).get("kind", ""))
         if kind in {"warehouse_delivery", "transport_to_warehouse"}:
-            return MAP_ICONS["transport_truck"]
-        return MAP_ICONS["shipper_bike"]
+            return MAP_ICONS["driver_truck"]
+        if (category or "").lower() == "ride":
+            return MAP_ICONS["motorbike_taxi"]
+        return MAP_ICONS["delivery_bike"]
 
     def maybe_prompt_delivery_confirmation(self) -> bool:
         leg = self.delivery_leg_at_playback_index(self.state.shipper_playback_index)
@@ -1407,6 +1439,7 @@ class FletDashboard:
                 if not self.state.user:
                     return
                 complete_order(order_id, self.state.user)
+                self.sync_shipper_position_to_route_end()
                 close_dialog()
                 self.state.accepted_orders = [item for item in self.state.accepted_orders if item.id != order_id]
                 self.state.orders = [item for item in self.state.orders if item.id != order_id]
@@ -1423,7 +1456,12 @@ class FletDashboard:
             title=text(f"Đã đến điểm giao {order.dropoffNodeId}", 18, TEXT, ft.FontWeight.W_900),
             content=ft.Column(
                 [
-                    text(f"Đơn {order.id} | {order.category}/{order.urgency}", 13, GREEN, ft.FontWeight.W_800),
+                    text(
+                        f"Đơn {order.id} | {self.order_category_label(order.category)}/{self.order_urgency_label(order.urgency)}",
+                        13,
+                        GREEN,
+                        ft.FontWeight.W_800,
+                    ),
                     text(
                         f"Nhận: {order.pickupNodeId}  ->  Giao: {order.dropoffNodeId}",
                         12,
@@ -1455,7 +1493,7 @@ class FletDashboard:
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=GREEN),
-                        text("Lap lo trinh de phat lai tung chieu di tren graph.", 12, MUTED),
+                        text("Lập lộ trình để phát lại từng chặng trên đồ thị.", 12, MUTED),
                     ],
                     spacing=10,
                 )
@@ -1463,15 +1501,15 @@ class FletDashboard:
         last_index = len(result.path) - 1
         current_index = min(self.state.shipper_playback_index, last_index)
         current_node = result.path[current_index]
-        next_node = result.path[current_index + 1] if current_index < last_index else "DONE"
+        next_node = result.path[current_index + 1] if current_index < last_index else "HOÀN TẤT"
         progress = current_index / last_index if last_index else 1
         return panel(
             ft.Column(
                 [
                     ft.Row(
                         [
-                            text("ROUTE PLAYBACK", 16, TEXT, ft.FontWeight.W_900),
-                            pill(f"{current_index}/{last_index} EDGES", "green"),
+                            text("PHÁT LỘ TRÌNH", 16, TEXT, ft.FontWeight.W_900),
+                            pill(f"{current_index}/{last_index} cạnh", "green"),
                             text(f"{current_node} -> {next_node}", 12, YELLOW, ft.FontWeight.W_800),
                         ],
                         wrap=True,
@@ -1482,13 +1520,13 @@ class FletDashboard:
                         [
                             ft.IconButton(
                                 ft.Icons.REPLAY,
-                                tooltip="Phat lai tu dau",
+                                tooltip="Phát lại từ đầu",
                                 icon_color=MUTED,
                                 on_click=lambda _: self.set_shipper_playback_index(0),
                             ),
-                            outline_button("Canh tiep theo", lambda _: self.step_shipper_playback(), ft.Icons.SKIP_NEXT),
+                            outline_button("Cạnh tiếp theo", lambda _: self.step_shipper_playback(), ft.Icons.SKIP_NEXT),
                             primary_button(
-                                "Dung playback" if self.state.shipper_playback_auto else "Auto playback",
+                                "Dừng phát" if self.state.shipper_playback_auto else "Tự động phát",
                                 lambda _: self.stop_and_render_shipper_playback()
                                 if self.state.shipper_playback_auto
                                 else self.start_shipper_playback(),
@@ -1830,7 +1868,12 @@ class FletDashboard:
                 image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Diem giao hang", 44)
             elif kind in {"warehouse_delivery", "transport_to_warehouse"}:
                 image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Diem giao hang", 44)
-            image_marker(current or str(active_delivery_leg.get("from") or ""), self.vehicle_icon_src(active_delivery_leg), "Shipper / xe van chuyen", 58)
+            image_marker(
+                current or str(active_delivery_leg.get("from") or ""),
+                self.vehicle_icon_src(active_delivery_leg, category),
+                "Tai xe / shipper",
+                58,
+            )
 
         map_layers = []
         if self.state.map_tiles_enabled:
@@ -1890,14 +1933,14 @@ class FletDashboard:
                     ft.IconButton(
                         ft.Icons.MAP if self.state.map_tiles_enabled else ft.Icons.GRID_ON,
                         on_click=toggle_map_tiles,
-                        tooltip="Tat nen OSM" if self.state.map_tiles_enabled else "Bat nen OSM",
+                        tooltip="Tắt nền OSM" if self.state.map_tiles_enabled else "Bật nền OSM",
                         bgcolor=GREEN if self.state.map_tiles_enabled else PANEL,
                         icon_color=INK if self.state.map_tiles_enabled else TEXT,
                     ),
-                    ft.IconButton(ft.Icons.ADD, on_click=zoom_in, tooltip="Phong to", bgcolor=PANEL, icon_color=TEXT),
-                    ft.IconButton(ft.Icons.REMOVE, on_click=zoom_out, tooltip="Thu nho", bgcolor=PANEL, icon_color=TEXT),
-                    ft.IconButton(ft.Icons.CENTER_FOCUS_STRONG, on_click=reset_view, tooltip="Dat lai goc nhin", bgcolor=PANEL, icon_color=TEXT),
-                    ft.IconButton(ft.Icons.OPEN_IN_FULL, on_click=self.open_map, tooltip="Mo ban do day du", bgcolor=PANEL, icon_color=TEXT),
+                    ft.IconButton(ft.Icons.ADD, on_click=zoom_in, tooltip="Phóng to", bgcolor=PANEL, icon_color=TEXT),
+                    ft.IconButton(ft.Icons.REMOVE, on_click=zoom_out, tooltip="Thu nhỏ", bgcolor=PANEL, icon_color=TEXT),
+                    ft.IconButton(ft.Icons.CENTER_FOCUS_STRONG, on_click=reset_view, tooltip="Đặt lại góc nhìn", bgcolor=PANEL, icon_color=TEXT),
+                    ft.IconButton(ft.Icons.OPEN_IN_FULL, on_click=self.open_map, tooltip="Mở bản đồ đầy đủ", bgcolor=PANEL, icon_color=TEXT),
                 ],
                 spacing=6,
             ),
@@ -1919,17 +1962,17 @@ class FletDashboard:
         )
         legend = ft.Row(
             [
-                self.legend_item("PATH", map_style["route"]),
-                self.legend_item("VISITED", map_style["visited"]),
-                self.legend_item("FRONTIER", map_style["frontier"]),
-                self.legend_item("CURRENT", map_style["current"]),
+                self.legend_item("TUYẾN", map_style["route"]),
+                self.legend_item("ĐÃ DUYỆT", map_style["visited"]),
+                self.legend_item("BIÊN", map_style["frontier"]),
+                self.legend_item("HIỆN TẠI", map_style["current"]),
             ],
             spacing=12,
             wrap=True,
         )
         group_label = ALGORITHM_GROUPS.get(map_group, {}).get("label", "Shipper Dispatch")
         map_summary = self.selected_map_summary()
-        map_title = f"BAN DO / {group_label.upper()}"
+        map_title = f"BẢN ĐỒ / {group_label.upper()}"
         if map_summary:
             map_title = f"{map_title} / {map_summary.name.upper()}"
         return panel(
@@ -1941,7 +1984,7 @@ class FletDashboard:
                             ft.Row(
                                 [
                                     legend,
-                                    outline_button("Toan man hinh", self.open_map, ft.Icons.MAP),
+                                    outline_button("Toàn màn hình", self.open_map, ft.Icons.MAP),
                                 ],
                                 spacing=10,
                                 wrap=True,
@@ -1982,12 +2025,12 @@ class FletDashboard:
         if not result:
             body = ft.Column(
                 [
-                    ft.Row([text("METRICS", 18, TEXT, ft.FontWeight.W_900), pill("IDLE")]),
+                    ft.Row([text("THỐNG KÊ", 18, TEXT, ft.FontWeight.W_900), pill("CHỜ CHẠY")]),
                     ft.Container(
                         content=ft.Column(
                             [
                                 ft.Icon(ft.Icons.INSIGHTS, color=GREEN, size=28),
-                                text("Chay thuat toan de xem metrics.", 12, MUTED, text_align=ft.TextAlign.CENTER),
+                                text("Chạy thuật toán để xem thống kê.", 12, MUTED, text_align=ft.TextAlign.CENTER),
                             ],
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             spacing=8,
@@ -2005,10 +2048,10 @@ class FletDashboard:
         metrics = result.metrics
         cards = ft.ResponsiveRow(
             [
-                self.metric_card("Runtime", f"{result.runtimeMs} ms"),
-                self.metric_card("Visited", str(len(result.visitedNodes))),
-                self.metric_card("Distance", f"{metric_value(metrics, 'distanceKm', default='-')} km"),
-                self.metric_card("Minutes", str(metric_value(metrics, "totalMinutes", "travelMinutes", "replannedMinutes", default="-"))),
+                self.metric_card("Thời gian chạy", f"{result.runtimeMs} ms"),
+                self.metric_card("Đã duyệt", str(len(result.visitedNodes))),
+                self.metric_card("Quãng đường", f"{metric_value(metrics, 'distanceKm', default='-')} km"),
+                self.metric_card("Số phút", str(metric_value(metrics, "totalMinutes", "travelMinutes", "replannedMinutes", default="-"))),
             ],
             spacing=8,
             run_spacing=8,
@@ -2022,7 +2065,7 @@ class FletDashboard:
             kv_rows.append(ft.Row([text(key, 12, MUTED, ft.FontWeight.W_700, width=140), text(value_text, 12, TEXT, expand=True)], spacing=8))
         body = ft.Column(
             [
-                ft.Row([text("METRICS", 18, TEXT, ft.FontWeight.W_900), pill("READY", "green")]),
+                ft.Row([text("THỐNG KÊ", 18, TEXT, ft.FontWeight.W_900), pill("SẴN SÀNG", "green")]),
                 text(result.explanation, 13, MUTED),
                 cards,
                 ft.Column(kv_rows, spacing=6, scroll=ft.ScrollMode.AUTO, height=220),
@@ -2060,11 +2103,11 @@ class FletDashboard:
         table = ft.DataTable(
             columns=[
                 ft.DataColumn(text("#", 11, MUTED, ft.FontWeight.W_700)),
-                ft.DataColumn(text("Algorithm", 11, MUTED, ft.FontWeight.W_700)),
-                ft.DataColumn(text("Mode", 11, MUTED, ft.FontWeight.W_700)),
-                ft.DataColumn(text("Minutes", 11, MUTED, ft.FontWeight.W_700)),
+                ft.DataColumn(text("Thuật toán", 11, MUTED, ft.FontWeight.W_700)),
+                ft.DataColumn(text("Chế độ", 11, MUTED, ft.FontWeight.W_700)),
+                ft.DataColumn(text("Phút", 11, MUTED, ft.FontWeight.W_700)),
                 ft.DataColumn(text("Km", 11, MUTED, ft.FontWeight.W_700)),
-                ft.DataColumn(text("RT", 11, MUTED, ft.FontWeight.W_700)),
+                ft.DataColumn(text("Thời gian", 11, MUTED, ft.FontWeight.W_700)),
             ],
             rows=rows,
             column_spacing=18,
@@ -2072,7 +2115,7 @@ class FletDashboard:
             border=ft.border.all(1, LINE),
         )
         body = ft.Column(
-            [ft.Row([text("COMPARISON TABLE", 18, TEXT, ft.FontWeight.W_900), pill(f"{len(rows)} RUNS")]), table],
+            [ft.Row([text("BẢNG SO SÁNH", 18, TEXT, ft.FontWeight.W_900), pill(f"{len(rows)} lần chạy")]), table],
             spacing=10,
             scroll=ft.ScrollMode.AUTO,
         )
