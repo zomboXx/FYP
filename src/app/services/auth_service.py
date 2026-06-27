@@ -63,6 +63,8 @@ ACTIVE_ALGORITHM_GROUPS = {
     "simulated_annealing": "local_search",
     "backtracking": "csp",
     "forward_checking": "csp",
+    "ac3": "csp",
+    "min_conflicts": "csp",
     "belief_state": "complex",
     "online_replan": "complex",
     "expectimax": "complex",
@@ -233,6 +235,7 @@ def seed_demo_data(db: sqlite3.Connection) -> None:
         for name, algorithm_group in ALGORITHM_GROUPS.items():
             enabled = 1 if group == "priority" or name in {
                 "bfs", "ucs", "astar", "simple_hill_climbing", "hill_climbing", "constraint", "forward_checking",
+                "ac3", "min_conflicts",
                 "online_replan", "expectimax", "minimax",
             } else 0
             db.execute(

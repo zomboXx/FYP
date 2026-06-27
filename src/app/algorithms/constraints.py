@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import random
+
 from app.algorithms.graph import BLOCKED_COST, find_edge, path_time
 from app.algorithms.search import astar
 from app.models.schemas import Order, Scenario, TraceStep
 
 DEBUG_TRACE_LIMIT = 300
+ALGORITHM_RULES = {
+    "backtracking": "Backtracking thu tung gia tri trong domain va quay lui khi vi pham rang buoc.",
+    "forward_checking": "Forward Checking xoa gia tri khong con hop le khoi domain cua bien lien quan.",
+    "ac3": "AC-3 duy tri nhat quan cung: moi gia tri cua Xi phai co gia tri ho tro o bien ke tiep.",
+    "min_conflicts": "Min-Conflicts bat dau bang assignment day du, roi sua bien dang xung dot.",
+}
 
 
 def check_route_constraints(scenario: Scenario, route: list[str], capacity_kg: float | None = None, debug: bool = False) -> dict:
@@ -108,6 +116,8 @@ def solve_delivery_csp(
     skipped_trace_steps = 0
     expanded_states = 0
     backtracks = 0
+    ac3_revisions = 0
+    min_conflict_steps = 0
 
     def location(order: Order, action: str) -> str:
         return (order.pickup_node_id or scenario.depot_id) if action == "pickup" else (order.dropoff_node_id or order.node_id)
@@ -166,6 +176,145 @@ def solve_delivery_csp(
                 return False
         return True
 
+    def projected_state(
+        current: str,
+        current_time: float,
+        load: float,
+        picked: set[str],
+        delivered: set[str],
+        route: list[str],
+        assignment: list[str],
+        order_id: str,
+        action: str,
+    ) -> dict | None:
+        order = order_by_id[order_id]
+        target = location(order, action)
+        segment, travel_minutes = travel(current, target)
+        if not segment or travel_minutes >= BLOCKED_COST:
+            return None
+        next_time = max(current_time + travel_minutes, order.ready_min) if action == "pickup" else current_time + travel_minutes
+        if action == "dropoff" and next_time > order.due_min:
+            return None
+        next_load = load + order.demand_kg if action == "pickup" else load - order.demand_kg
+        if next_load > capacity:
+            return None
+        next_picked = picked | {order_id} if action == "pickup" else set(picked)
+        next_delivered = delivered | {order_id} if action == "dropoff" else set(delivered)
+        next_route = route + (segment[1:] if route else segment)
+        next_assignment = assignment + [f"{action}:{order_id}@{target}"]
+        return {
+            "target": target,
+            "segment": segment,
+            "travelMinutes": travel_minutes,
+            "time": next_time,
+            "load": next_load,
+            "picked": next_picked,
+            "delivered": next_delivered,
+            "route": next_route,
+            "assignment": next_assignment,
+        }
+
+    def has_arc_support(
+        current: str,
+        current_time: float,
+        load: float,
+        picked: set[str],
+        delivered: set[str],
+        route: list[str],
+        assignment: list[str],
+        action_value: tuple[str, str],
+    ) -> tuple[bool, str]:
+        state = projected_state(current, current_time, load, picked, delivered, route, assignment, *action_value)
+        label = action_label(*action_value)
+        if state is None:
+            return False, f"{label}: khong thoa rang buoc don bien."
+        if len(state["delivered"]) == len(orders):
+            return True, f"{label}: hoan tat assignment nen khong can cung ho tro."
+        next_actions = available_actions(state["picked"], state["delivered"], state["load"])
+        for next_action in next_actions:
+            if projected_state(
+                state["target"],
+                state["time"],
+                state["load"],
+                state["picked"],
+                state["delivered"],
+                state["route"],
+                state["assignment"],
+                *next_action,
+            ) is not None:
+                return True, f"{label}: co ho tro tu {action_label(*next_action)}."
+        return False, f"{label}: khong co gia tri nao o bien ke tiep lam cung nhat quan."
+
+    def ac3_reduce_actions(
+        current: str,
+        current_time: float,
+        load: float,
+        picked: set[str],
+        delivered: set[str],
+        route: list[str],
+        assignment: list[str],
+        actions: list[tuple[str, str]],
+    ) -> list[tuple[str, str]]:
+        nonlocal ac3_revisions
+        if algorithm != "ac3":
+            return actions
+        trace(
+            "ac3_queue",
+            current,
+            route,
+            current_time,
+            actions,
+            assignment,
+            "Khoi tao hang doi AC-3 bang cac cung giua bien hien tai va bien tiep theo trong lich pickup/dropoff.",
+            load,
+            picked,
+            delivered,
+            result_label="Lap hang doi cung",
+            constraint_checks=["Cung (Xi, Xj) nhat quan neu moi gia tri cua Xi co it nhat mot gia tri ho tro o Xj."],
+        )
+        reduced: list[tuple[str, str]] = []
+        removed: list[str] = []
+        support_notes: list[str] = []
+        for action_value in actions:
+            supported, note = has_arc_support(current, current_time, load, picked, delivered, route, assignment, action_value)
+            support_notes.append(note)
+            if supported:
+                reduced.append(action_value)
+            else:
+                removed.append(note)
+        if removed:
+            ac3_revisions += 1
+            trace(
+                "ac3_revise",
+                current,
+                route,
+                current_time,
+                reduced,
+                assignment,
+                "REVISE loai cac gia tri khong co support, sau do lan truyen lai cac cung lien quan.",
+                load,
+                picked,
+                delivered,
+                result_label="Cat mien" if reduced else "Domain rong",
+                constraint_checks=removed,
+            )
+        else:
+            trace(
+                "ac3_consistent",
+                current,
+                route,
+                current_time,
+                actions,
+                assignment,
+                "Tat ca gia tri trong domain hien tai deu co support nen cung dang nhat quan.",
+                load,
+                picked,
+                delivered,
+                result_label="Nhat quan",
+                constraint_checks=support_notes[:4],
+            )
+        return reduced
+
     def impossible_from_start() -> list[str]:
         issues = []
         for order in orders:
@@ -221,12 +370,8 @@ def solve_delivery_csp(
                 decisionReason=reason,
                 debugData={
                     "traceType": "csp",
-                    "courseConcept": "CSP = Variables, Domains, Constraints; Backtracking thu gia tri va quay lui khi vi pham.",
-                    "algorithmRule": (
-                        "Forward Checking cat nhanh khi mot bien chua gan mat het mien."
-                        if algorithm == "forward_checking"
-                        else "Backtracking thu tung gia tri trong domain cho den khi tim duoc assignment hop le."
-                    ),
+                    "courseConcept": "CSP = Variables, Domains, Constraints; Backtracking, Forward Checking, AC-3, Min-Conflicts.",
+                    "algorithmRule": ALGORITHM_RULES.get(algorithm, ALGORITHM_RULES["backtracking"]),
                     "concept": "Bien = vi tri tiep theo trong chuoi pickup/dropoff; mien = cac hanh dong con hop le.",
                     "selectedVariable": selected_variable,
                     "domainValues": domain,
@@ -275,6 +420,8 @@ def solve_delivery_csp(
             "traceSteps": trace_steps,
             "traceTruncated": skipped_trace_steps > 0,
             "skippedTraceSteps": skipped_trace_steps,
+            "ac3Revisions": ac3_revisions,
+            "minConflictSteps": min_conflict_steps,
         }
 
     def backtrack(
@@ -305,7 +452,16 @@ def solve_delivery_csp(
             )
             return route, assignment, current_time
 
-        actions = available_actions(picked, delivered, load)
+        actions = ac3_reduce_actions(
+            current,
+            current_time,
+            load,
+            picked,
+            delivered,
+            route,
+            assignment,
+            available_actions(picked, delivered, load),
+        )
         trace(
             "select_variable",
             current,
@@ -468,7 +624,125 @@ def solve_delivery_csp(
         )
         return None
 
-    solution = backtrack(scenario.depot_id, 0.0, 0.0, set(), set(), [scenario.depot_id], [])
+    def evaluate_complete_sequence(sequence: list[str]) -> dict:
+        route = [scenario.depot_id]
+        assignment: list[str] = []
+        current = scenario.depot_id
+        current_time = 0.0
+        load = 0.0
+        max_load = 0.0
+        picked: set[str] = set()
+        delivered: set[str] = set()
+        conflicts: dict[str, list[str]] = {}
+
+        def add_conflict(order_id: str, message: str) -> None:
+            conflicts.setdefault(order_id, []).append(message)
+
+        for order_id in sequence:
+            order = order_by_id[order_id]
+            for action in ("pickup", "dropoff"):
+                target = location(order, action)
+                segment, travel_minutes = travel(current, target)
+                if not segment or travel_minutes >= BLOCKED_COST:
+                    add_conflict(order_id, f"{action_label(order_id, action)} khong co duong di hop le.")
+                    continue
+                route.extend(segment[1:])
+                current = target
+                current_time = max(current_time + travel_minutes, order.ready_min) if action == "pickup" else current_time + travel_minutes
+                if action == "pickup":
+                    picked.add(order_id)
+                    load += order.demand_kg
+                    max_load = max(max_load, load)
+                    if load > capacity:
+                        add_conflict(order_id, f"Tai trong {load:.1f}kg vuot suc chua {capacity:.1f}kg.")
+                else:
+                    if order_id not in picked:
+                        add_conflict(order_id, "Dropoff khong co pickup truoc do.")
+                    if current_time > order.due_min:
+                        add_conflict(order_id, f"Giao tre: den {current_time:.1f}, han {order.due_min}.")
+                    delivered.add(order_id)
+                    load -= order.demand_kg
+                    current_time += order.service_min
+                assignment.append(f"{action}:{order_id}@{target}")
+
+        for order in orders:
+            if order.id not in delivered:
+                add_conflict(order.id, "Chua giao xong trong assignment day du.")
+        score = sum(len(items) for items in conflicts.values())
+        return {
+            "valid": score == 0,
+            "path": route,
+            "assignment": assignment,
+            "totalMinutes": current_time,
+            "conflicts": conflicts,
+            "score": score,
+            "loadKg": max_load,
+        }
+
+    def solve_with_min_conflicts() -> tuple[list[str], list[str], float] | None:
+        nonlocal expanded_states, min_conflict_steps
+        if not orders:
+            return [scenario.depot_id], [], 0.0
+        rng = random.Random(13)
+        sequence = [order.id for order in sorted(orders, key=lambda item: (item.due_min, -item.priority, item.id))]
+        current_eval = evaluate_complete_sequence(sequence)
+        expanded_states += 1
+        trace(
+            "min_conflicts_init",
+            scenario.depot_id,
+            current_eval["path"],
+            current_eval["totalMinutes"],
+            [],
+            current_eval["assignment"],
+            "Khoi tao assignment hoan chinh cho tat ca bien, chap nhan tam thoi ca cac xung dot neu co.",
+            current_eval["loadKg"],
+            set(sequence),
+            set(order.id for order in orders if order.id not in current_eval["conflicts"]),
+            result_label="Het xung dot" if current_eval["valid"] else "Con xung dot",
+            constraint_checks=[
+                f"{order_id}: {'; '.join(messages)}" for order_id, messages in current_eval["conflicts"].items()
+            ] or ["Assignment ban dau khong vi pham rang buoc."],
+        )
+        max_steps = max(20, len(orders) * len(orders) * 4)
+        for step in range(max_steps + 1):
+            min_conflict_steps = step
+            if current_eval["valid"]:
+                return current_eval["path"], current_eval["assignment"], current_eval["totalMinutes"]
+            conflicted = list(current_eval["conflicts"])
+            selected = rng.choice(conflicted)
+            candidates: list[tuple[int, float, list[str], dict]] = []
+            rest = [order_id for order_id in sequence if order_id != selected]
+            for position in range(len(rest) + 1):
+                candidate_sequence = rest[:position] + [selected] + rest[position:]
+                candidate_eval = evaluate_complete_sequence(candidate_sequence)
+                candidates.append((candidate_eval["score"], candidate_eval["totalMinutes"], candidate_sequence, candidate_eval))
+            best_score, _, best_sequence, best_eval = min(candidates, key=lambda item: (item[0], item[1]))
+            trace(
+                "min_conflicts_update",
+                scenario.depot_id,
+                best_eval["path"],
+                best_eval["totalMinutes"],
+                [", ".join(candidate[2]) for candidate in candidates[:6]],
+                best_eval["assignment"],
+                f"Chon bien dang xung dot {selected}, thu cac vi tri khac va giu assignment co so conflict nho nhat.",
+                best_eval["loadKg"],
+                set(best_sequence),
+                set(order.id for order in orders if order.id not in best_eval["conflicts"]),
+                tried_value=selected,
+                result_label=f"Con {best_score} xung dot",
+                constraint_checks=[
+                    f"{order_id}: {'; '.join(messages)}" for order_id, messages in best_eval["conflicts"].items()
+                ] or ["Khong con xung dot."],
+            )
+            sequence = best_sequence
+            current_eval = best_eval
+            expanded_states += 1
+        return None
+
+    if algorithm == "min_conflicts":
+        solution = solve_with_min_conflicts()
+    else:
+        solution = backtrack(scenario.depot_id, 0.0, 0.0, set(), set(), [scenario.depot_id], [])
     return {
         "valid": solution is not None,
         "path": solution[0] if solution else [],
@@ -482,4 +756,6 @@ def solve_delivery_csp(
         "traceSteps": trace_steps,
         "traceTruncated": skipped_trace_steps > 0,
         "skippedTraceSteps": skipped_trace_steps,
+        "ac3Revisions": ac3_revisions,
+        "minConflictSteps": min_conflict_steps,
     }

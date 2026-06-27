@@ -133,6 +133,8 @@ def test_csp_solver_handles_valid_and_infeasible_order_sets():
     scenario = load_osm_cached_scenario()
     valid = solve_delivery_csp(scenario, "forward_checking", ["O4"], 22, debug=True)
     infeasible = solve_delivery_csp(scenario, "forward_checking", ["O4", "O2"], 22, debug=True)
+    ac3 = solve_delivery_csp(scenario, "ac3", ["O4"], 22, debug=True)
+    min_conflicts = solve_delivery_csp(scenario, "min_conflicts", ["O4"], 22, debug=True)
     assert valid["valid"] is True
     assert valid["assignment"]
     assert valid["traceSteps"][0].debugData["traceType"] == "csp"
@@ -145,6 +147,10 @@ def test_csp_solver_handles_valid_and_infeasible_order_sets():
     assert len(first_move.previewPath) == 2
     assert infeasible["valid"] is False
     assert any(step.phase == "forward_prune" for step in infeasible["traceSteps"])
+    assert ac3["valid"] is True
+    assert any(step.phase.startswith("ac3_") for step in ac3["traceSteps"])
+    assert min_conflicts["valid"] is True
+    assert min_conflicts["traceSteps"][0].phase == "min_conflicts_init"
 
 
 def test_alpha_beta_matches_minimax_and_expands_no_more_nodes():

@@ -59,7 +59,12 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "label": "CSP",
         "short": "CSP",
         "mode": "csp",
-        "algorithms": [("backtracking", "Backtracking + MRV"), ("forward_checking", "Forward Checking")],
+        "algorithms": [
+            ("backtracking", "Backtracking Search"),
+            ("forward_checking", "Forward Checking"),
+            ("ac3", "Arc Consistency (AC-3)"),
+            ("min_conflicts", "Min-Conflicts"),
+        ],
     },
     "adversarial": {
         "label": "Adversarial Search",

@@ -99,7 +99,7 @@ class ConstraintCheckRequest(BaseModel):
 
 
 class CspSolveRequest(BaseModel):
-    algorithm: Literal["backtracking", "forward_checking"] = "forward_checking"
+    algorithm: Literal["backtracking", "forward_checking", "ac3", "min_conflicts"] = "forward_checking"
     orderIds: list[str] | None = None
     capacityKg: float | None = None
     debug: bool = False
