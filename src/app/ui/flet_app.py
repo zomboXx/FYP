@@ -733,7 +733,7 @@ class FletDashboard:
             ft.Column(
                 [
                     ft.Row([text("ĐƠN HÀNG", 22, TEXT, ft.FontWeight.W_900), pill(f"{len(self.state.orders)} đơn", "green")]),
-                    pill("LINH HOẠT: HIỆN TẠI -> NHẬN -> GIAO" if profile == "on_demand" else "KHO: KHO -> ĐIỂM GIAO", "cyan"),
+                    pill("CUOC LE: HIEN TAI -> NHAN -> GIAO" if profile == "on_demand" else "WAREHOUSE: W1 -> CAC DIEM GIAO", "cyan"),
                     dropdown(
                         "Bản đồ",
                         str(self.state.active_map_id or ""),
