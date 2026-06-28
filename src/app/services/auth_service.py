@@ -53,7 +53,12 @@ ACTIVE_ALGORITHM_GROUPS = {
     "dfs": "uninformed",
     "greedy": "informed",
     "astar": "informed",
+    "simple_hill_climbing": "local_search",
+    "hill_climbing": "local_search",
+    "steepest_ascent": "local_search",
     "sideways_hill_climbing": "local_search",
+    "random_restart": "local_search",
+    "local_beam": "local_search",
     "simulated_annealing": "local_search",
     "backtracking": "csp",
     "forward_checking": "csp",
@@ -69,7 +74,8 @@ ALGORITHM_GROUPS = {**ACTIVE_ALGORITHM_GROUPS, **LEGACY_ALGORITHM_GROUPS}
 STANDARD_DEFAULT_ALGORITHMS = {
     "bfs",
     "astar",
-    "sideways_hill_climbing",
+    "simple_hill_climbing",
+    "hill_climbing",
     "constraint",
     "forward_checking",
     "online_replan",
@@ -79,25 +85,37 @@ STANDARD_DEFAULT_ALGORITHMS = {
 MIN_AVAILABLE_ORDERS = 7
 ORDER_CATEGORIES = ["food", "ride", "parcel", "grocery"]
 ORDER_URGENCIES = ["urgent", "normal", "low"]
-# These profiles keep the demo realistic: on-demand work starts from the rider's current location,
-# while warehouse delivery starts from inventory that already sits at the depot.
-SHIPPER_GROUP_POLICIES = {
-    "standard": {"profile": "on_demand", "categories": ("food", "ride")},
-    "priority": {"profile": "depot_delivery", "categories": ("parcel", "grocery")},
+LEGACY_SHIPPER_GROUPS = {
+    "standard": "on_demand",
+    "priority": "warehouse",
 }
+SHIPPER_GROUP_POLICIES = {
+    "on_demand": {"profile": "on_demand", "categories": ("food", "ride")},
+    "warehouse": {"profile": "warehouse", "categories": ("parcel", "grocery")},
+}
+SHIPPER_GROUP_DESCRIPTIONS = {
+    "on_demand": "Shipper di don/cuoc le",
+    "warehouse": "Shipper lay hang tu warehouse W1",
+}
+
+
+def normalize_shipper_group(shipper_group: str | None) -> str | None:
+    if shipper_group is None:
+        return None
+    return LEGACY_SHIPPER_GROUPS.get(shipper_group, shipper_group)
 
 
 def shipper_operation_profile(user: UserPublic) -> str:
     if user.role == "admin":
-        return "depot_delivery"
-    return str(SHIPPER_GROUP_POLICIES.get(user.shipperGroup or "", {}).get("profile", "on_demand"))
+        return "warehouse"
+    group = normalize_shipper_group(user.shipperGroup)
+    return str(SHIPPER_GROUP_POLICIES.get(group or "", {}).get("profile", "on_demand"))
 
 
 def allowed_order_categories(user: UserPublic) -> tuple[str, ...]:
     if user.role == "admin":
-        # Admin previews the warehouse workflow by default because it is the stricter planning case.
         return ("parcel", "grocery")
-    policy = SHIPPER_GROUP_POLICIES.get(user.shipperGroup or "")
+    policy = SHIPPER_GROUP_POLICIES.get(normalize_shipper_group(user.shipperGroup) or "")
     return tuple(policy["categories"]) if policy else ()
 
 

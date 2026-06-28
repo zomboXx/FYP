@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from time import perf_counter
 
+from fastapi import HTTPException, status
+
 from app.algorithms.adversarial import adversarial_search
 from app.algorithms.complex import complex_search
 from app.algorithms.constraints import check_route_constraints, solve_delivery_csp
@@ -341,17 +343,25 @@ class ShipperRouteDraft:
     total_distance: float = 0.0
 
     def append_leg(self, goal: str, kind: str, order_id: str, label: str) -> bool:
-        if self.current == goal:
-            return True
-        result = astar(self.scenario, self.current, goal)
-        if not result.path:
-            return False
-
         from_node = self.current
-        self.path.extend(result.path[1:])
-        self.visited.extend(result.visited_nodes)
-        self.total_minutes += result.total_minutes
-        self.total_distance += result.distance_km
+        if self.current == goal:
+            leg_path = [from_node, goal]
+            visited_nodes: list[str] = [goal]
+            minutes = 0.0
+            distance_km = 0.0
+        else:
+            result = astar(self.scenario, self.current, goal)
+            if not result.path:
+                return False
+            leg_path = result.path
+            visited_nodes = result.visited_nodes
+            minutes = result.total_minutes
+            distance_km = result.distance_km
+
+        self.path.extend(leg_path[1:])
+        self.visited.extend(visited_nodes)
+        self.total_minutes += minutes
+        self.total_distance += distance_km
         leg = {
             "index": len(self.route_legs),
             "from": from_node,
@@ -359,9 +369,9 @@ class ShipperRouteDraft:
             "kind": kind,
             "orderId": order_id,
             "label": label,
-            "path": result.path,
-            "minutes": result.total_minutes,
-            "distanceKm": result.distance_km,
+            "path": leg_path,
+            "minutes": minutes,
+            "distanceKm": distance_km,
         }
         self.route_legs.append(leg)
 
@@ -451,6 +461,11 @@ def plan_accepted_orders(request: DeliveryOptimizeRequest, user: UserPublic) -> 
     profile = shipper_operation_profile(user)
     start_id = _resolve_shipper_start(scenario, profile, request.startId)
     orders = _routeable_orders(scenario, user)
+    if not orders:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chua co don hang da nhan phu hop de lap lo trinh.",
+        )
     ordered = _ordered_for_shipper_profile(scenario, profile, request.routingStrategy, start_id, orders)
     started = perf_counter()
     draft, late_orders = _build_shipper_route(scenario, profile, start_id, ordered, request.debug)

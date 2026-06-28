@@ -168,6 +168,18 @@ def test_order_filter_accept_and_shipper_plan_route():
     assert body["traceSteps"]
 
 
+def test_shipper_plan_requires_accepted_orders():
+    token = login("shipper_a", "shipper123")
+    clear_shipper_assignments("shipper_a")
+    planned = client.post(
+        "/api/shipper/routes/plan",
+        json={"algorithm": "simple_hill_climbing", "debug": True},
+        headers=auth(token),
+    )
+    assert planned.status_code == 400
+    assert "Chua co don hang" in planned.json()["detail"]
+
+
 def test_accepting_orders_replenishes_available_pool_to_minimum_seven():
     token = login("shipper_a", "shipper123")
     clear_shipper_assignments("shipper_a")
@@ -231,6 +243,39 @@ def test_shipper_profiles_filter_orders_and_build_routes_from_the_correct_origin
     assert global_plan["metrics"]["operationProfile"] == "depot_delivery"
     assert global_plan["metrics"]["travelMinutes"] <= nearest["metrics"]["travelMinutes"]
     assert all(leg["kind"] == "warehouse_delivery" for leg in global_plan["metrics"]["routeLegs"])
+
+
+def test_shipper_plan_keeps_duplicate_dropoff_orders_as_separate_legs():
+    token = login("shipper_b", "shipper123")
+    clear_shipper_assignments("shipper_b")
+    order_ids = ["T_DUP_ROUTE_A", "T_DUP_ROUTE_B"]
+    with get_connection() as db:
+        db.execute(
+            f"DELETE FROM shipper_order_assignments WHERE order_id IN ({','.join('?' for _ in order_ids)})",
+            order_ids,
+        )
+        db.execute(f"DELETE FROM orders WHERE id IN ({','.join('?' for _ in order_ids)})", order_ids)
+        db.executemany(
+            """
+            INSERT INTO orders(id, category, urgency, pickup_node_id, dropoff_node_id, demand_kg, priority, due_min, status)
+            VALUES (?, 'parcel', 'urgent', 'W1', 'D3', 1.0, 4, 90, 'available')
+            """,
+            [(order_id,) for order_id in order_ids],
+        )
+    accepted = client.post("/api/shipper/orders/accept", json={"orderIds": order_ids}, headers=auth(token))
+    assert accepted.status_code == 200
+
+    planned = client.post(
+        "/api/shipper/routes/plan",
+        json={"algorithm": "simple_hill_climbing", "routingStrategy": "nearest_neighbor", "debug": True},
+        headers=auth(token),
+    )
+    assert planned.status_code == 200
+    route_legs = planned.json()["metrics"]["routeLegs"]
+    assert [leg["orderId"] for leg in route_legs] == order_ids
+    assert route_legs[1]["from"] == "D3"
+    assert route_legs[1]["to"] == "D3"
+    assert route_legs[1]["path"] == ["D3", "D3"]
 
 
 def test_shipper_confirms_delivery_after_accepting_order():
@@ -373,7 +418,12 @@ def test_permissions_show_six_active_groups_and_no_rl_endpoint():
         "dfs",
         "astar",
         "greedy",
+        "simple_hill_climbing",
+        "hill_climbing",
+        "steepest_ascent",
         "sideways_hill_climbing",
+        "random_restart",
+        "local_beam",
         "simulated_annealing",
         "backtracking",
         "forward_checking",

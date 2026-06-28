@@ -75,7 +75,12 @@ class PathfindingRequest(BaseModel):
 
 class DeliveryOptimizeRequest(BaseModel):
     algorithm: Literal[
+        "simple_hill_climbing",
+        "hill_climbing",
+        "steepest_ascent",
         "sideways_hill_climbing",
+        "random_restart",
+        "local_beam",
         "simulated_annealing",
     ]
     orderIds: list[str] | None = None
@@ -207,7 +212,7 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     role: UserRole = "shipper"
-    shipperGroup: str | None = "standard"
+    shipperGroup: str | None = "on_demand"
 
 
 class PermissionRow(BaseModel):
@@ -250,9 +255,14 @@ class CompleteOrderRequest(BaseModel):
 
 class ShipperPlanRequest(BaseModel):
     algorithm: Literal[
+        "simple_hill_climbing",
+        "hill_climbing",
+        "steepest_ascent",
         "sideways_hill_climbing",
+        "random_restart",
+        "local_beam",
         "simulated_annealing",
-    ] = "sideways_hill_climbing"
+    ] = "simple_hill_climbing"
     startId: str | None = None
     routingStrategy: Literal["nearest_neighbor", "global_optimization"] = "global_optimization"
     debug: bool = True
