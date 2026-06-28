@@ -131,9 +131,9 @@ def test_admin_can_create_update_delete_maps_and_live_map_can_select_one():
 
 def test_admin_permission_can_block_shipper_algorithm():
     admin = login("admin", "admin123")
-    shipper = login("shipper_a", "shipper123")
+    shipper = login("shipper_on_demand", "shipper123")
     patch = {
-        "shipperGroup": "standard",
+        "shipperGroup": "on_demand",
         "algorithmGroup": "informed",
         "algorithmName": "greedy",
         "enabled": False,
@@ -148,8 +148,8 @@ def test_admin_permission_can_block_shipper_algorithm():
 
 
 def test_order_filter_accept_and_shipper_plan_route():
-    token = login("shipper_b", "shipper123")
-    clear_shipper_assignments("shipper_b")
+    token = login("shipper_warehouse", "shipper123")
+    clear_shipper_assignments("shipper_warehouse")
     available = client.get("/api/orders/available?urgency=urgent", headers=auth(token))
     assert available.status_code == 200
     assert len(available.json()) >= 7
@@ -169,8 +169,8 @@ def test_order_filter_accept_and_shipper_plan_route():
 
 
 def test_shipper_plan_requires_accepted_orders():
-    token = login("shipper_a", "shipper123")
-    clear_shipper_assignments("shipper_a")
+    token = login("shipper_on_demand", "shipper123")
+    clear_shipper_assignments("shipper_on_demand")
     planned = client.post(
         "/api/shipper/routes/plan",
         json={"algorithm": "simple_hill_climbing", "debug": True},
@@ -181,8 +181,8 @@ def test_shipper_plan_requires_accepted_orders():
 
 
 def test_accepting_orders_replenishes_available_pool_to_minimum_seven():
-    token = login("shipper_a", "shipper123")
-    clear_shipper_assignments("shipper_a")
+    token = login("shipper_on_demand", "shipper123")
+    clear_shipper_assignments("shipper_on_demand")
     before = client.get("/api/orders/available", headers=auth(token))
     assert before.status_code == 200
     assert len(before.json()) >= 7
@@ -196,10 +196,10 @@ def test_accepting_orders_replenishes_available_pool_to_minimum_seven():
 
 
 def test_shipper_profiles_filter_orders_and_build_routes_from_the_correct_origin():
-    on_demand = login("shipper_a", "shipper123")
-    depot_delivery = login("shipper_b", "shipper123")
-    clear_shipper_assignments("shipper_a")
-    clear_shipper_assignments("shipper_b")
+    on_demand = login("shipper_on_demand", "shipper123")
+    warehouse = login("shipper_warehouse", "shipper123")
+    clear_shipper_assignments("shipper_on_demand")
+    clear_shipper_assignments("shipper_warehouse")
 
     on_demand_orders = client.get("/api/orders/available", headers=auth(on_demand)).json()
     assert len(on_demand_orders) >= 7
@@ -219,35 +219,35 @@ def test_shipper_profiles_filter_orders_and_build_routes_from_the_correct_origin
     assert on_demand_plan["metrics"]["operationProfile"] == "on_demand"
     assert [leg["kind"] for leg in on_demand_plan["metrics"]["routeLegs"]][-1] == "serve_order"
 
-    depot_orders = client.get("/api/orders/available", headers=auth(depot_delivery)).json()
+    depot_orders = client.get("/api/orders/available", headers=auth(warehouse)).json()
     assert len(depot_orders) >= 7
     assert {order["category"] for order in depot_orders} <= {"parcel", "grocery"}
     assert len({order["pickupNodeId"] for order in depot_orders}) == 1
     accepted = client.post(
         "/api/shipper/orders/accept",
         json={"orderIds": [order["id"] for order in depot_orders[:3]]},
-        headers=auth(depot_delivery),
+        headers=auth(warehouse),
     )
     assert accepted.status_code == 200
     nearest = client.post(
         "/api/shipper/routes/plan",
         json={"routingStrategy": "nearest_neighbor", "debug": True},
-        headers=auth(depot_delivery),
+        headers=auth(warehouse),
     ).json()
     global_plan = client.post(
         "/api/shipper/routes/plan",
         json={"routingStrategy": "global_optimization", "debug": True},
-        headers=auth(depot_delivery),
+        headers=auth(warehouse),
     ).json()
     assert nearest["path"][0] == depot_orders[0]["pickupNodeId"]
-    assert global_plan["metrics"]["operationProfile"] == "depot_delivery"
+    assert global_plan["metrics"]["operationProfile"] == "warehouse"
     assert global_plan["metrics"]["travelMinutes"] <= nearest["metrics"]["travelMinutes"]
     assert all(leg["kind"] == "warehouse_delivery" for leg in global_plan["metrics"]["routeLegs"])
 
 
 def test_shipper_plan_keeps_duplicate_dropoff_orders_as_separate_legs():
-    token = login("shipper_b", "shipper123")
-    clear_shipper_assignments("shipper_b")
+    token = login("shipper_warehouse", "shipper123")
+    clear_shipper_assignments("shipper_warehouse")
     order_ids = ["T_DUP_ROUTE_A", "T_DUP_ROUTE_B"]
     with get_connection() as db:
         db.execute(
@@ -278,9 +278,42 @@ def test_shipper_plan_keeps_duplicate_dropoff_orders_as_separate_legs():
     assert route_legs[1]["path"] == ["D3", "D3"]
 
 
+def test_on_demand_shipper_batches_food_orders_from_same_pickup():
+    token = login("shipper_on_demand", "shipper123")
+    clear_shipper_assignments("shipper_on_demand")
+    order_ids = ["T_BATCH_FOOD_A", "T_BATCH_FOOD_B"]
+    with get_connection() as db:
+        db.execute(
+            f"DELETE FROM shipper_order_assignments WHERE order_id IN ({','.join('?' for _ in order_ids)})",
+            order_ids,
+        )
+        db.execute(f"DELETE FROM orders WHERE id IN ({','.join('?' for _ in order_ids)})", order_ids)
+        db.executemany(
+            """
+            INSERT INTO orders(id, category, urgency, pickup_node_id, dropoff_node_id, demand_kg, priority, due_min, status)
+            VALUES (?, 'food', 'urgent', 'A4', ?, 1.0, 5, 90, 'available')
+            """,
+            [(order_ids[0], "D1"), (order_ids[1], "D3")],
+        )
+    accepted = client.post("/api/shipper/orders/accept", json={"orderIds": order_ids}, headers=auth(token))
+    assert accepted.status_code == 200
+
+    planned = client.post(
+        "/api/shipper/routes/plan",
+        json={"startId": "A1", "debug": True},
+        headers=auth(token),
+    )
+    assert planned.status_code == 200
+    route_legs = planned.json()["metrics"]["routeLegs"]
+    assert planned.json()["metrics"]["operationProfile"] == "on_demand"
+    assert [leg["kind"] for leg in route_legs] == ["approach_pickup", "serve_order", "serve_order"]
+    assert route_legs[0]["to"] == "A4"
+    assert {leg["orderId"] for leg in route_legs if leg["kind"] == "serve_order"} == set(order_ids)
+
+
 def test_shipper_confirms_delivery_after_accepting_order():
-    token = login("shipper_a", "shipper123")
-    clear_shipper_assignments("shipper_a")
+    token = login("shipper_on_demand", "shipper123")
+    clear_shipper_assignments("shipper_on_demand")
     available = client.get("/api/orders/available", headers=auth(token)).json()
     order_id = available[0]["id"]
 
@@ -305,7 +338,7 @@ def test_shipper_confirms_delivery_after_accepting_order():
         assignment = db.execute(
             """
             SELECT delivered_at FROM shipper_order_assignments
-            WHERE order_id = ? AND user_id = (SELECT id FROM users WHERE username = 'shipper_a')
+            WHERE order_id = ? AND user_id = (SELECT id FROM users WHERE username = 'shipper_on_demand')
             """,
             (order_id,),
         ).fetchone()

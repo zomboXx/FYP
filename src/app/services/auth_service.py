@@ -236,23 +236,33 @@ def seed_demo_maps(db: sqlite3.Connection) -> None:
 def seed_demo_data(db: sqlite3.Connection) -> None:
     db.executemany(
         "INSERT OR IGNORE INTO shipper_groups(name, description) VALUES (?, ?)",
-        [
-            ("standard", "Nhom shipper pho thong"),
-            ("priority", "Nhom shipper duoc dung them thuat toan toi uu nang cao"),
-        ],
+        list(SHIPPER_GROUP_DESCRIPTIONS.items()),
+    )
+    for legacy, current in LEGACY_SHIPPER_GROUPS.items():
+        db.execute("UPDATE users SET shipper_group = ? WHERE shipper_group = ?", (current, legacy))
+    db.execute(
+        f"DELETE FROM algorithm_permissions WHERE shipper_group IN ({','.join('?' for _ in LEGACY_SHIPPER_GROUPS)})",
+        list(LEGACY_SHIPPER_GROUPS),
+    )
+    db.execute(
+        f"DELETE FROM shipper_groups WHERE name IN ({','.join('?' for _ in LEGACY_SHIPPER_GROUPS)})",
+        list(LEGACY_SHIPPER_GROUPS),
     )
     for username, password, role, group in [
         ("admin", "admin123", "admin", None),
-        ("shipper_a", "shipper123", "shipper", "standard"),
-        ("shipper_b", "shipper123", "shipper", "priority"),
+        ("shipper_a", "shipper123", "shipper", "on_demand"),
+        ("shipper_b", "shipper123", "shipper", "warehouse"),
+        ("shipper_on_demand", "shipper123", "shipper", "on_demand"),
+        ("shipper_warehouse", "shipper123", "shipper", "warehouse"),
     ]:
         db.execute(
             "INSERT OR IGNORE INTO users(username, password_hash, role, shipper_group) VALUES (?, ?, ?, ?)",
             (username, hash_password(password), role, group),
         )
-    for group in ["standard", "priority"]:
+        db.execute("UPDATE users SET role = ?, shipper_group = ? WHERE username = ?", (role, group, username))
+    for group in SHIPPER_GROUP_POLICIES:
         for name, algorithm_group in ALGORITHM_GROUPS.items():
-            enabled = 1 if group == "priority" or name in STANDARD_DEFAULT_ALGORITHMS else 0
+            enabled = 1 if group == "warehouse" or name in STANDARD_DEFAULT_ALGORITHMS else 0
             db.execute(
                 """
                 INSERT INTO algorithm_permissions(shipper_group, algorithm_group, algorithm_name, enabled)
@@ -263,7 +273,7 @@ def seed_demo_data(db: sqlite3.Connection) -> None:
                 (group, algorithm_group, name, enabled),
             )
     db.executemany(
-        "UPDATE algorithm_permissions SET enabled = 1 WHERE shipper_group = 'standard' AND algorithm_name = ?",
+        "UPDATE algorithm_permissions SET enabled = 1 WHERE shipper_group = 'on_demand' AND algorithm_name = ?",
         [(name,) for name in STANDARD_DEFAULT_ALGORITHMS],
     )
     scenario = load_osm_cached_scenario()
@@ -517,7 +527,12 @@ def decode_token(token: str) -> dict[str, Any]:
 
 
 def row_to_user(row: sqlite3.Row) -> UserPublic:
-    return UserPublic(id=row["id"], username=row["username"], role=row["role"], shipperGroup=row["shipper_group"])
+    return UserPublic(
+        id=row["id"],
+        username=row["username"],
+        role=row["role"],
+        shipperGroup=normalize_shipper_group(row["shipper_group"]),
+    )
 
 
 def authenticate(username: str, password: str) -> UserPublic:
@@ -548,17 +563,18 @@ def require_admin(user: UserPublic = Depends(get_current_user)) -> UserPublic:
 def assert_algorithm_allowed(user: UserPublic, algorithm_name: str) -> None:
     if user.role == "admin":
         return
-    if user.shipperGroup is None:
+    shipper_group = normalize_shipper_group(user.shipperGroup)
+    if shipper_group is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shipper chua duoc gan nhom")
     with get_connection() as db:
         row = db.execute(
             "SELECT enabled FROM algorithm_permissions WHERE shipper_group = ? AND algorithm_name = ?",
-            (user.shipperGroup, algorithm_name),
+            (shipper_group, algorithm_name),
         ).fetchone()
     if row is None or not bool(row["enabled"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Nhom {user.shipperGroup} chua duoc bat thuat toan {algorithm_name}",
+            detail=f"Nhom {shipper_group} chua duoc bat thuat toan {algorithm_name}",
         )
 
 
@@ -583,6 +599,7 @@ def list_permissions() -> list[PermissionRow]:
 
 
 def update_permission(shipper_group: str, algorithm_group: str, algorithm_name: str, enabled: bool) -> PermissionRow:
+    shipper_group = normalize_shipper_group(shipper_group) or shipper_group
     with get_connection() as db:
         db.execute(
             """
@@ -608,6 +625,7 @@ def list_users() -> list[UserPublic]:
 
 
 def update_user_group(user_id: int, shipper_group: str) -> UserPublic:
+    shipper_group = normalize_shipper_group(shipper_group) or shipper_group
     with get_connection() as db:
         db.execute("UPDATE users SET shipper_group = ? WHERE id = ?", (shipper_group, user_id))
         row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
@@ -617,6 +635,7 @@ def update_user_group(user_id: int, shipper_group: str) -> UserPublic:
 
 
 def register_user(username: str, password: str, role: str, shipper_group: str | None) -> UserPublic:
+    shipper_group = normalize_shipper_group(shipper_group)
     try:
         with get_connection() as db:
             cursor = db.execute(

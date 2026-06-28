@@ -286,6 +286,14 @@ def _order_dropoff(order: Order) -> str:
     return order.dropoff_node_id or order.node_id
 
 
+def _order_pickup(scenario: Scenario, order: Order) -> str:
+    return order.pickup_node_id or scenario.depot_id
+
+
+def _is_batchable_on_demand_order(order: Order) -> bool:
+    return order.category != "ride"
+
+
 def _route_minutes_for_orders(scenario: Scenario, start_id: str, orders: list[Order]) -> float:
     current = start_id
     total = 0.0
@@ -403,8 +411,8 @@ def _default_mobile_start(scenario: Scenario) -> str:
 
 
 def _resolve_shipper_start(scenario: Scenario, profile: str, requested_start: str | None) -> str:
-    if profile == "depot_delivery":
-        return scenario.depot_id
+    if profile == "warehouse":
+        return "W1" if any(node.id == "W1" for node in scenario.nodes) else scenario.depot_id
     fallback = _default_mobile_start(scenario)
     return requested_start if requested_start in {node.id for node in scenario.nodes} else fallback
 
@@ -426,11 +434,39 @@ def _ordered_for_shipper_profile(
     start_id: str,
     orders: list[Order],
 ) -> list[Order]:
-    if profile != "depot_delivery":
+    if profile == "on_demand":
+        return _ordered_for_on_demand_profile(scenario, start_id, orders)
+    if profile != "warehouse":
         return orders
     if strategy == "nearest_neighbor":
         return _nearest_delivery_order(scenario, start_id, orders)
     return _globally_improved_delivery_order(scenario, start_id, orders)
+
+
+def _ordered_for_on_demand_profile(scenario: Scenario, start_id: str, orders: list[Order]) -> list[Order]:
+    remaining = orders[:]
+    ordered: list[Order] = []
+    current = start_id
+    while remaining:
+        next_order = min(
+            remaining,
+            key=lambda order: astar(scenario, current, _order_pickup(scenario, order)).total_minutes,
+        )
+        pickup = _order_pickup(scenario, next_order)
+        if _is_batchable_on_demand_order(next_order):
+            bundle = [
+                order
+                for order in remaining
+                if _is_batchable_on_demand_order(order) and _order_pickup(scenario, order) == pickup
+            ]
+            bundle = _globally_improved_delivery_order(scenario, pickup, bundle)
+        else:
+            bundle = [next_order]
+        ordered.extend(bundle)
+        for order in bundle:
+            remaining.remove(order)
+        current = _order_dropoff(bundle[-1])
+    return ordered
 
 
 def _build_shipper_route(
@@ -442,16 +478,44 @@ def _build_shipper_route(
 ) -> tuple[ShipperRouteDraft, int]:
     draft = ShipperRouteDraft(scenario=scenario, debug=debug, path=[start_id], current=start_id)
     late_orders = 0
-    for order in orders:
-        pickup = order.pickup_node_id or scenario.depot_id
+    index = 0
+    while index < len(orders):
+        order = orders[index]
+        pickup = _order_pickup(scenario, order)
         dropoff = _order_dropoff(order)
         if profile == "on_demand":
-            draft.append_leg(pickup, "approach_pickup", order.id, f"Di tu vi tri hien tai den diem nhan {order.id}.")
-            draft.append_leg(dropoff, "serve_order", order.id, f"Don/nhan hang tai {pickup}, di theo chieu den {dropoff}.")
+            bundle = [order]
+            if _is_batchable_on_demand_order(order):
+                next_index = index + 1
+                while next_index < len(orders):
+                    candidate = orders[next_index]
+                    if not _is_batchable_on_demand_order(candidate) or _order_pickup(scenario, candidate) != pickup:
+                        break
+                    bundle.append(candidate)
+                    next_index += 1
+            draft.append_leg(
+                pickup,
+                "approach_pickup",
+                order.id,
+                f"Di tu vi tri hien tai den diem nhan {len(bundle)} don tai {pickup}.",
+            )
+            for bundled_order in bundle:
+                bundled_dropoff = _order_dropoff(bundled_order)
+                draft.append_leg(
+                    bundled_dropoff,
+                    "serve_order",
+                    bundled_order.id,
+                    f"Da nhan hang tai {pickup}, giao {bundled_order.id} den {bundled_dropoff}.",
+                )
+                if draft.total_minutes > bundled_order.due_min:
+                    late_orders += 1
+            index += len(bundle)
+            continue
         else:
             draft.append_leg(dropoff, "warehouse_delivery", order.id, f"Giao {order.id} tu tuyen kho den {dropoff}.")
         if draft.total_minutes > order.due_min:
             late_orders += 1
+        index += 1
     return draft, late_orders
 
 
@@ -471,7 +535,7 @@ def plan_accepted_orders(request: DeliveryOptimizeRequest, user: UserPublic) -> 
     draft, late_orders = _build_shipper_route(scenario, profile, start_id, ordered, request.debug)
 
     capacity = request.capacityKg or scenario.capacity_kg
-    load_kg = sum(order.demand_kg for order in ordered) if profile == "depot_delivery" else max(
+    load_kg = sum(order.demand_kg for order in ordered) if profile == "warehouse" else max(
         (order.demand_kg for order in ordered),
         default=0.0,
     )
@@ -501,7 +565,7 @@ def plan_accepted_orders(request: DeliveryOptimizeRequest, user: UserPublic) -> 
         explanation=(
             f"On-demand: {start_id} -> pickup -> dropoff cho {len(ordered)} don."
             if profile == "on_demand"
-            else f"Depot delivery dung {strategy_label} qua {len(ordered)} diem giao."
+            else f"Warehouse delivery dung {strategy_label} qua {len(ordered)} diem giao."
         ),
         traceSteps=_enrich_trace_steps(draft.trace_steps),
     )

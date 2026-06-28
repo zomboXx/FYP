@@ -272,8 +272,8 @@ class FletDashboard:
         demo_cards = ft.Column(
             [
                 account_card(ft.Icons.ADMIN_PANEL_SETTINGS, "Admin", "Defense Lab + Admin Panel", YELLOW, "admin", "admin123"),
-                account_card(ft.Icons.LOCAL_SHIPPING, "Shipper Standard", "BFS, DFS, A*", GREEN, "shipper_a", "shipper123"),
-                account_card(ft.Icons.ROCKET_LAUNCH, "Shipper Priority", "Full algorithm access", CYAN, "shipper_b", "shipper123"),
+                account_card(ft.Icons.TWO_WHEELER, "Shipper cuoc le", "Don rieng, co the gom cung diem nhan", GREEN, "shipper_on_demand", "shipper123"),
+                account_card(ft.Icons.WAREHOUSE, "Shipper warehouse", "Lay hang tai W1 roi toi uu tuyen giao", CYAN, "shipper_warehouse", "shipper123"),
             ],
             spacing=10,
         )
@@ -554,8 +554,8 @@ class FletDashboard:
         if not self.state.user or not self.state.scenario:
             return
         profile = shipper_operation_profile(self.state.user)
-        if profile == "depot_delivery":
-            self.state.shipper_start_id = self.state.scenario.depot_id
+        if profile == "warehouse":
+            self.state.shipper_start_id = "W1" if any(node.id == "W1" for node in self.state.scenario.nodes) else self.state.scenario.depot_id
         elif not self.state.shipper_start_id or self.state.shipper_start_id == self.state.scenario.depot_id:
             self.state.shipper_start_id = next(
                 (
@@ -779,7 +779,7 @@ class FletDashboard:
                         ],
                         lambda event: self.set_field("shipper_routing_strategy", event.control.value),
                     )
-                    if profile == "depot_delivery"
+                    if profile == "warehouse"
                     else ft.Container(height=0),
                     ft.Row(
                         [
