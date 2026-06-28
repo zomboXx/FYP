@@ -269,7 +269,7 @@ def _render_map_html(payload: dict) -> str:
     }}
     .node-depot {{ background: #23d179; border-color: #23d179; }}
     .node-order {{ background: #24c8e8; border-color: #24c8e8; }}
-    .node-path {{ background: #facc15; border-color: #facc15; }}
+    .node-path {{ background: #24c8e8; border-color: #24c8e8; }}
     .node-start, .node-goal {{ background: #ff4d57; border-color: #ff4d57; }}
     .manual-node {{
       display: grid;
@@ -493,11 +493,14 @@ def _render_map_html(payload: dict) -> str:
     }}
 
     function nodeBadgeStyle(node) {{
-      if (node.id === start || node.id === goal) {{
+      if (node.id === start) {{
         return `background:${{mapStyle.current || "#ff4d57"}};border-color:${{mapStyle.current || "#ff4d57"}};`;
       }}
+      if (node.id === goal) {{
+        return `background:${{mapStyle.goal || "#ff4d57"}};border-color:${{mapStyle.goal || "#ff4d57"}};`;
+      }}
       if (routeSet.has(node.id)) {{
-        return `background:${{mapStyle.route || "#23d179"}};border-color:${{mapStyle.route || "#23d179"}};`;
+        return `background:${{mapStyle.route || "#24c8e8"}};border-color:${{mapStyle.route || "#24c8e8"}};`;
       }}
       return "";
     }}

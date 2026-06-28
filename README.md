@@ -5,6 +5,21 @@ Trợ lý lập lộ trình giao hàng xe máy trong đô thị Việt Nam.
 
 Find Your Path là MVP cho đồ án AI cuối khóa. Ứng dụng mô phỏng quy trình giao hàng, cho phép admin bật/tắt nhóm thuật toán theo nhóm shipper, shipper nhận đơn và hệ thống lập lộ trình bằng các thuật toán được cài đặt trong project.
 
+## Thông tin đồ án
+
+| Thông tin | Nội dung |
+| --- | --- |
+| Trường | Trường Đại học Công nghệ Kỹ thuật Thành phố Hồ Chí Minh |
+| Mã học phần | `ARIN330585` |
+| Lớp học phần | `252ARIN330585_07` |
+| Giảng viên hướng dẫn | TS. Phan Thị Huyền Trang |
+| Nhóm thực hiện | Nhóm 5 |
+
+| Họ tên | MSSV |
+| --- | --- |
+| Nguyễn Đức Phát | `24110296` |
+| Nguyễn Văn Thi | `24110334` |
+
 ## Demo
 
 Web app: <https://find-your-path-fyp.vercel.app>

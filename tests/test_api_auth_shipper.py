@@ -429,13 +429,14 @@ def test_complex_and_csp_endpoints_return_structured_debug_traces():
 
     csp_response = client.post(
         "/api/csp/solve",
-        json={"algorithm": "forward_checking", "orderIds": ["O4"], "capacityKg": 22, "debug": True},
+        json={"algorithm": "forward_checking", "capacityKg": 22, "debug": True},
         headers=auth(token),
     )
     assert csp_response.status_code == 200
     csp_body = csp_response.json()
     assert csp_body["metrics"]["valid"] is True
     assert csp_body["metrics"]["assignment"]
+    assert [order["id"] for order in csp_body["metrics"]["orderSummaries"]] == ["O4", "O6", "O8"]
 
 
 def test_permissions_show_six_active_groups_and_no_rl_endpoint():
@@ -455,6 +456,8 @@ def test_permissions_show_six_active_groups_and_no_rl_endpoint():
         "simulated_annealing",
         "backtracking",
         "forward_checking",
+        "ac3",
+        "min_conflicts",
         "online_replan",
         "and_or",
         "minimax",

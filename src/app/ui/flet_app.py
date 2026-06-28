@@ -10,6 +10,7 @@ import flet as ft
 import flet_map as fmap
 from fastapi import HTTPException
 
+from app.algorithms.constraints import csp_default_order_ids, csp_demo_scenario, csp_order_summaries
 from app.data.scenario import load_osm_cached_scenario
 from app.models.schemas import (
     AdversarialSearchRequest,
@@ -889,11 +890,23 @@ class FletDashboard:
             )
             if self.state.maps
             else ft.Container(height=0),
-            ft.Container(height=1, bgcolor=LINE),
-            text("ALGORITHM", 11, MUTED, ft.FontWeight.W_900),
-            ft.Column(algorithm_buttons, spacing=8),
         ]
         mode = selected_group["mode"]
+        if mode == "csp":
+            controls.extend(
+                [
+                    ft.Container(height=1, bgcolor=LINE),
+                    text("DEFAULT CSP ORDERS", 11, MUTED, ft.FontWeight.W_900),
+                    self.csp_default_orders_panel(),
+                ]
+            )
+        controls.extend(
+            [
+                ft.Container(height=1, bgcolor=LINE),
+                text("ALGORITHM", 11, MUTED, ft.FontWeight.W_900),
+                ft.Column(algorithm_buttons, spacing=8),
+            ]
+        )
         if mode in {"pathfinding", "delivery", "complex", "adversarial"}:
             controls.extend(
                 [
@@ -915,19 +928,6 @@ class FletDashboard:
                         lambda e: self.set_field("capacity_kg", float(e.control.value)),
                     ),
                 ]
-            )
-        if mode == "csp":
-            controls.append(
-                ft.TextField(
-                    label="Order IDs",
-                    value=self.state.csp_order_ids,
-                    hint_text="O4 or O4,O2",
-                    on_change=lambda e: self.set_field("csp_order_ids", e.control.value, rerender=False),
-                    border_color=LINE,
-                    focused_border_color=GREEN,
-                    bgcolor=PANEL_2,
-                    color=TEXT,
-                )
             )
         if mode == "complex":
             controls.extend(
@@ -1245,6 +1245,42 @@ class FletDashboard:
         setattr(self.state, key, value)
         if rerender:
             self.render()
+
+    def csp_default_orders_panel(self) -> ft.Control:
+        scenario = csp_demo_scenario(self.state.scenario or load_osm_cached_scenario())
+        summaries = csp_order_summaries(scenario, csp_default_order_ids(scenario))
+        rows = []
+        for item in summaries:
+            rows.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    text(str(item["id"]), 12, GREEN, ft.FontWeight.W_900),
+                                    text(f"{item['demandKg']}kg", 10, MUTED, ft.FontWeight.W_700),
+                                    text(f"han {item['dueMin']}p", 10, YELLOW, ft.FontWeight.W_700),
+                                ],
+                                spacing=8,
+                            ),
+                            text(f"{item['pickupId']} -> {item['dropoffId']}", 11, TEXT, ft.FontWeight.W_700),
+                            text(f"{item['pickupName']} -> {item['dropoffName']}", 9, MUTED),
+                        ],
+                        spacing=2,
+                    ),
+                    bgcolor=PANEL_2,
+                    border=ft.border.all(1, LINE),
+                    border_radius=4,
+                    padding=7,
+                )
+            )
+        return ft.Column(
+            [
+                text("Moi thuat toan CSP dung cung bo don nay.", 10, MUTED),
+                *rows,
+            ],
+            spacing=5,
+        )
 
     def set_result(self, label: str, mode: str, response: AlgorithmResponse) -> None:
         self.state.result = response
@@ -1635,7 +1671,7 @@ class FletDashboard:
             response = solve_csp(
                 CspSolveRequest(
                     algorithm=self.state.algorithm,
-                    orderIds=[part.strip() for part in self.state.csp_order_ids.split(",") if part.strip()],
+                    orderIds=None,
                     capacityKg=self.state.capacity_kg,
                     scenario=self.state.scenario,
                     debug=True,

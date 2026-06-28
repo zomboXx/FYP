@@ -7,7 +7,12 @@ from fastapi import HTTPException, status
 
 from app.algorithms.adversarial import adversarial_search
 from app.algorithms.complex import complex_search
-from app.algorithms.constraints import check_route_constraints, solve_delivery_csp
+from app.algorithms.constraints import (
+    check_route_constraints,
+    csp_default_order_ids,
+    csp_demo_scenario,
+    solve_delivery_csp,
+)
 from app.algorithms.delivery import DELIVERY_ALGORITHMS, LOCAL_DEMO_ORDER_LIMIT, selected_orders
 from app.algorithms.events import expectimax_event_choice, replan_after_event
 from app.algorithms.search import SEARCH_ALGORITHMS, astar
@@ -148,8 +153,12 @@ def check_constraints(request: ConstraintCheckRequest, user: UserPublic) -> Algo
 def solve_csp(request: CspSolveRequest, user: UserPublic) -> AlgorithmResponse:
     assert_algorithm_allowed(user, request.algorithm)
     scenario = scenario_or_default(request.scenario)
+    order_ids = request.orderIds
+    if not order_ids:
+        scenario = csp_demo_scenario(scenario)
+        order_ids = csp_default_order_ids(scenario)
     started = perf_counter()
-    result = solve_delivery_csp(scenario, request.algorithm, request.orderIds, request.capacityKg, request.debug)
+    result = solve_delivery_csp(scenario, request.algorithm, order_ids, request.capacityKg, request.debug)
     runtime_ms = (perf_counter() - started) * 1000
     return AlgorithmResponse(
         path=result["path"],

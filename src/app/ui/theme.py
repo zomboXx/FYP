@@ -18,7 +18,6 @@ RED = "#FF4D57"
 PAPER = PANEL
 PAPER_2 = BG
 
-
 ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
     "uninformed": {
         "label": "Uninformed Search",
@@ -57,6 +56,8 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "algorithms": [
             ("backtracking", "Backtracking"),
             ("forward_checking", "Forward Checking"),
+            ("ac3", "Arc Consistency (AC-3)"),
+            ("min_conflicts", "Min-Conflicts"),
         ],
     },
     "adversarial": {

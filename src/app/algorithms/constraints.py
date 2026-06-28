@@ -1,18 +1,65 @@
 from __future__ import annotations
 
 import random
+from typing import Any
 
 from app.algorithms.graph import BLOCKED_COST, find_edge, path_time
 from app.algorithms.search import astar
 from app.models.schemas import Order, Scenario, TraceStep
 
 DEBUG_TRACE_LIMIT = 300
+DEFAULT_CSP_ORDER_IDS = ("O4", "O6", "O8")
+DEFAULT_CSP_DEMO_DUE_MIN = 75
 ALGORITHM_RULES = {
     "backtracking": "Backtracking thu tung gia tri trong domain va quay lui khi vi pham rang buoc.",
     "forward_checking": "Forward Checking xoa gia tri khong con hop le khoi domain cua bien lien quan.",
     "ac3": "AC-3 duy tri nhat quan cung: moi gia tri cua Xi phai co gia tri ho tro o bien ke tiep.",
     "min_conflicts": "Min-Conflicts bat dau bang assignment day du, roi sua bien dang xung dot.",
 }
+
+
+def csp_default_order_ids(scenario: Scenario) -> list[str]:
+    available = {order.id for order in scenario.orders}
+    selected = [order_id for order_id in DEFAULT_CSP_ORDER_IDS if order_id in available]
+    return selected or [order.id for order in scenario.orders[:3]]
+
+
+def csp_demo_scenario(scenario: Scenario) -> Scenario:
+    demo = scenario.model_copy(deep=True)
+    selected = set(csp_default_order_ids(demo))
+    for order in demo.orders:
+        if order.id in selected:
+            order.due_min = max(order.due_min, DEFAULT_CSP_DEMO_DUE_MIN)
+    return demo
+
+
+def csp_order_summaries(scenario: Scenario, order_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    selected_ids = order_ids or csp_default_order_ids(scenario)
+    order_by_id = {order.id: order for order in scenario.orders}
+    node_by_id = {node.id: node for node in scenario.nodes}
+    summaries: list[dict[str, Any]] = []
+    for order_id in selected_ids:
+        order = order_by_id.get(order_id)
+        if order is None:
+            continue
+        pickup_id = order.pickup_node_id or scenario.depot_id
+        dropoff_id = order.dropoff_node_id or order.node_id
+        pickup = node_by_id.get(pickup_id)
+        dropoff = node_by_id.get(dropoff_id)
+        summaries.append(
+            {
+                "id": order.id,
+                "category": order.category,
+                "pickupId": pickup_id,
+                "pickupName": pickup.name if pickup else pickup_id,
+                "dropoffId": dropoff_id,
+                "dropoffName": dropoff.name if dropoff else dropoff_id,
+                "demandKg": order.demand_kg,
+                "dueMin": order.due_min,
+                "priority": order.priority,
+            }
+        )
+    return summaries
 
 
 def check_route_constraints(scenario: Scenario, route: list[str], capacity_kg: float | None = None, debug: bool = False) -> dict:
@@ -112,6 +159,8 @@ def solve_delivery_csp(
     orders = [order for order in scenario.orders if selected_order_ids is None or order.id in selected_order_ids]
     capacity = capacity_kg or scenario.capacity_kg
     order_by_id = {order.id: order for order in orders}
+    node_by_id = {node.id: node for node in scenario.nodes}
+    order_summaries = csp_order_summaries(scenario, [order.id for order in orders])
     trace_steps: list[TraceStep] = []
     skipped_trace_steps = 0
     expanded_states = 0
@@ -149,14 +198,20 @@ def solve_delivery_csp(
         order = order_by_id[order_id]
         target = location(order, action)
         verb = "Nhan" if action == "pickup" else "Giao"
-        return f"{verb} {order_id} tai {target}"
+        node = node_by_id.get(target)
+        suffix = f" ({node.name})" if node else ""
+        return f"{verb} {order_id} tai {target}{suffix}"
 
     def domain_labels(actions: list[tuple[str, str]]) -> list[str]:
         return [action_label(order_id, action) for order_id, action in actions]
 
     def remaining_orders(picked: set[str], delivered: set[str]) -> list[str]:
         return [
-            f"{order.id}: {'da giao' if order.id in delivered else 'dang mang' if order.id in picked else 'chua nhan'}"
+            (
+                f"{order.id}: {'da giao' if order.id in delivered else 'dang mang' if order.id in picked else 'chua nhan'} | "
+                f"{location(order, 'pickup')} -> {location(order, 'dropoff')} | "
+                f"{order.demand_kg:.1f}kg | han {order.due_min}p"
+            )
             for order in orders
         ]
 
@@ -385,6 +440,7 @@ def solve_delivery_csp(
                     "result": result_label,
                     "assignment": assignment[:],
                     "remainingOrders": remaining_orders(picked, delivered),
+                    "orderDetails": order_summaries,
                     "loadKg": round(load, 2),
                     "capacityKg": capacity,
                 },
@@ -422,6 +478,7 @@ def solve_delivery_csp(
             "skippedTraceSteps": skipped_trace_steps,
             "ac3Revisions": ac3_revisions,
             "minConflictSteps": min_conflict_steps,
+            "orderSummaries": order_summaries,
         }
 
     def backtrack(
@@ -722,7 +779,7 @@ def solve_delivery_csp(
                 scenario.depot_id,
                 best_eval["path"],
                 best_eval["totalMinutes"],
-                [", ".join(candidate[2]) for candidate in candidates[:6]],
+                [],
                 best_eval["assignment"],
                 f"Chon bien dang xung dot {selected}, thu cac vi tri khac va giu assignment co so conflict nho nhat.",
                 best_eval["loadKg"],
@@ -730,9 +787,11 @@ def solve_delivery_csp(
                 set(order.id for order in orders if order.id not in best_eval["conflicts"]),
                 tried_value=selected,
                 result_label=f"Con {best_score} xung dot",
-                constraint_checks=[
-                    f"{order_id}: {'; '.join(messages)}" for order_id, messages in best_eval["conflicts"].items()
-                ] or ["Khong con xung dot."],
+                constraint_checks=(
+                    ["Cac assignment ung vien: " + " | ".join(", ".join(candidate[2]) for candidate in candidates[:6])]
+                    + [f"{order_id}: {'; '.join(messages)}" for order_id, messages in best_eval["conflicts"].items()]
+                    or ["Khong con xung dot."]
+                ),
             )
             sequence = best_sequence
             current_eval = best_eval
@@ -758,4 +817,5 @@ def solve_delivery_csp(
         "skippedTraceSteps": skipped_trace_steps,
         "ac3Revisions": ac3_revisions,
         "minConflictSteps": min_conflict_steps,
+        "orderSummaries": order_summaries,
     }
