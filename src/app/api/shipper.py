@@ -43,6 +43,7 @@ def post_shipper_route(request: ShipperPlanRequest, user: UserPublic = Depends(g
         DeliveryOptimizeRequest(
             algorithm=request.algorithm,
             startId=request.startId,
+            goalId=request.goalId,
             routingStrategy=request.routingStrategy,
             debug=request.debug,
         ),

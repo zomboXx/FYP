@@ -159,7 +159,7 @@ def test_order_filter_accept_and_shipper_plan_route():
     assert accepted.status_code == 200
     planned = client.post(
         "/api/shipper/routes/plan",
-        json={"algorithm": "sideways_hill_climbing", "debug": True},
+        json={"algorithm": "simple_hill_climbing", "debug": True},
         headers=auth(token),
     )
     assert planned.status_code == 200
@@ -452,11 +452,6 @@ def test_permissions_show_six_active_groups_and_no_rl_endpoint():
         "astar",
         "greedy",
         "simple_hill_climbing",
-        "hill_climbing",
-        "steepest_ascent",
-        "sideways_hill_climbing",
-        "random_restart",
-        "local_beam",
         "simulated_annealing",
         "backtracking",
         "forward_checking",

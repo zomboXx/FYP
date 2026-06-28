@@ -38,10 +38,6 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "mode": "delivery",
         "algorithms": [
             ("simple_hill_climbing", "Simple Hill Climbing"),
-            ("steepest_ascent", "Steepest-Ascent"),
-            ("sideways_hill_climbing", "Sideways Moves"),
-            ("random_restart", "Random-Restart"),
-            ("local_beam", "Local Beam Search"),
             ("simulated_annealing", "Simulated Annealing"),
         ],
     },

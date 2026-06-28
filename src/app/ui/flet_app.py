@@ -894,7 +894,7 @@ class FletDashboard:
             ft.Column(algorithm_buttons, spacing=8),
         ]
         mode = selected_group["mode"]
-        if mode in {"pathfinding", "complex", "adversarial"}:
+        if mode in {"pathfinding", "delivery", "complex", "adversarial"}:
             controls.extend(
                 [
                     ft.Container(height=1, bgcolor=LINE),
@@ -1624,6 +1624,8 @@ class FletDashboard:
                 DeliveryOptimizeRequest(
                     algorithm=self.state.algorithm,
                     capacityKg=self.state.capacity_kg,
+                    startId=self.state.start_id,
+                    goalId=self.state.goal_id,
                     scenario=self.state.scenario,
                     debug=True,
                 ),

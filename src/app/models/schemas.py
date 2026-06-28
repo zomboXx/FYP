@@ -76,16 +76,12 @@ class PathfindingRequest(BaseModel):
 class DeliveryOptimizeRequest(BaseModel):
     algorithm: Literal[
         "simple_hill_climbing",
-        "hill_climbing",
-        "steepest_ascent",
-        "sideways_hill_climbing",
-        "random_restart",
-        "local_beam",
         "simulated_annealing",
     ]
     orderIds: list[str] | None = None
     capacityKg: float | None = None
     startId: str | None = None
+    goalId: str | None = None
     routingStrategy: Literal["nearest_neighbor", "global_optimization"] = "global_optimization"
     debug: bool = False
     scenario: Scenario | None = None
@@ -256,13 +252,9 @@ class CompleteOrderRequest(BaseModel):
 class ShipperPlanRequest(BaseModel):
     algorithm: Literal[
         "simple_hill_climbing",
-        "hill_climbing",
-        "steepest_ascent",
-        "sideways_hill_climbing",
-        "random_restart",
-        "local_beam",
         "simulated_annealing",
     ] = "simple_hill_climbing"
     startId: str | None = None
+    goalId: str | None = None
     routingStrategy: Literal["nearest_neighbor", "global_optimization"] = "global_optimization"
     debug: bool = True

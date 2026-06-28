@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from app.algorithms.adversarial import adversarial_search
 from app.algorithms.complex import complex_search
 from app.algorithms.constraints import check_route_constraints, solve_delivery_csp
-from app.algorithms.delivery import DELIVERY_ALGORITHMS, selected_orders
+from app.algorithms.delivery import DELIVERY_ALGORITHMS, LOCAL_DEMO_ORDER_LIMIT, selected_orders
 from app.algorithms.events import expectimax_event_choice, replan_after_event
 from app.algorithms.search import SEARCH_ALGORITHMS, astar
 from app.data.scenario import default_scenario, load_osm_cached_scenario
@@ -82,9 +82,17 @@ def run_pathfinding(request: PathfindingRequest, user: UserPublic) -> AlgorithmR
 def optimize_delivery(request: DeliveryOptimizeRequest, user: UserPublic) -> AlgorithmResponse:
     assert_algorithm_allowed(user, request.algorithm)
     scenario = scenario_or_default(request.scenario)
-    orders = selected_orders(scenario, request.orderIds)
+    limit = LOCAL_DEMO_ORDER_LIMIT if request.orderIds is None else None
+    orders = selected_orders(scenario, request.orderIds, limit=limit)
     started = perf_counter()
-    result = DELIVERY_ALGORITHMS[request.algorithm](scenario, orders, request.capacityKg, request.debug)
+    result = DELIVERY_ALGORITHMS[request.algorithm](
+        scenario,
+        orders,
+        request.capacityKg,
+        request.debug,
+        request.startId,
+        request.goalId,
+    )
     runtime_ms = (perf_counter() - started) * 1000
     order_text = " -> ".join(result["stops"])
     return AlgorithmResponse(
@@ -93,6 +101,10 @@ def optimize_delivery(request: DeliveryOptimizeRequest, user: UserPublic) -> Alg
         runtimeMs=round(runtime_ms, 3),
         metrics={
             "algorithm": request.algorithm,
+            "startNode": request.startId or scenario.depot_id,
+            "goalNode": request.goalId or request.startId or scenario.depot_id,
+            "orderCount": len(orders),
+            "orderIds": [order.id for order in orders],
             "stops": result["stops"],
             "distanceKm": result["distanceKm"],
             "travelMinutes": result["travelMinutes"],

@@ -8,24 +8,33 @@ from app.models.schemas import DeliveryState, Order, Scenario, TraceStep
 
 CATEGORY_PRIORITY_BONUS = {"ride": 18, "food": 12, "parcel": 5, "grocery": 3}
 URGENCY_PENALTY = {"urgent": 2.0, "normal": 1.0, "low": 0.6}
+LOCAL_DEMO_ORDER_LIMIT = 3
 
 
-def selected_orders(scenario: Scenario, order_ids: list[str] | None) -> list[Order]:
+def selected_orders(scenario: Scenario, order_ids: list[str] | None, limit: int | None = None) -> list[Order]:
     wanted = set(order_ids) if order_ids is not None else {order.id for order in scenario.orders}
-    return [order for order in scenario.orders if order.id in wanted]
+    orders = [order for order in scenario.orders if order.id in wanted]
+    return orders[:limit] if limit is not None else orders
 
 
-def route_stops_for_orders(scenario: Scenario, orders: list[Order]) -> list[str]:
-    stops = [scenario.depot_id]
+def route_stops_for_orders(
+    scenario: Scenario,
+    orders: list[Order],
+    start_id: str | None = None,
+    goal_id: str | None = None,
+) -> list[str]:
+    start = start_id or scenario.depot_id
+    goal = goal_id or start
+    stops = [start]
     for order in orders:
-        pickup = order.pickup_node_id or scenario.depot_id
+        pickup = order.pickup_node_id or start
         dropoff = order.dropoff_node_id or order.node_id
         if pickup != stops[-1]:
             stops.append(pickup)
         if dropoff != stops[-1]:
             stops.append(dropoff)
-    if stops[-1] != scenario.depot_id:
-        stops.append(scenario.depot_id)
+    if stops[-1] != goal:
+        stops.append(goal)
     return stops
 
 
@@ -103,20 +112,37 @@ def _order_state(orders: list[Order]) -> list[str]:
     return [order.id for order in orders]
 
 
-def _order_route(scenario: Scenario, orders: list[Order]) -> list[str]:
-    return route_stops_for_orders(scenario, orders)
+def _order_route(
+    scenario: Scenario,
+    orders: list[Order],
+    start_id: str | None = None,
+    goal_id: str | None = None,
+) -> list[str]:
+    return route_stops_for_orders(scenario, orders, start_id, goal_id)
 
 
 def _state_key(orders: list[Order]) -> tuple[str, ...]:
     return tuple(order.id for order in orders)
 
 
-def _state_cost(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None) -> float:
-    return float(evaluate_delivery_order(scenario, orders, capacity_kg)["totalCost"])
+def _state_cost(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    start_id: str | None = None,
+    goal_id: str | None = None,
+) -> float:
+    return float(evaluate_delivery_order(scenario, orders, capacity_kg, start_id=start_id, goal_id=goal_id)["totalCost"])
 
 
-def _state_value(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None) -> float:
-    return -_state_cost(scenario, orders, capacity_kg)
+def _state_value(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    start_id: str | None = None,
+    goal_id: str | None = None,
+) -> float:
+    return -_state_cost(scenario, orders, capacity_kg, start_id, goal_id)
 
 
 def _state_node(scenario: Scenario, orders: list[Order]) -> str:
@@ -143,16 +169,22 @@ def _trace_local_state(
     cost: float,
     reason: str,
     debug_data: dict,
+    start_id: str | None = None,
+    goal_id: str | None = None,
 ) -> None:
+    start = start_id or scenario.depot_id
+    goal = goal_id or start
     _append_trace(
         trace_steps,
         phase,
         _state_node(scenario, state),
-        _order_route(scenario, state),
+        _order_route(scenario, state, start, goal),
         cost,
         reason,
         {
             "traceType": "local_search",
+            "routeStart": start,
+            "routeGoal": goal,
             "state": _order_state(state),
             "h": round(cost, 2),
             "value": round(-cost, 2),
@@ -169,8 +201,12 @@ def evaluate_delivery_order(
     orders: list[Order],
     capacity_kg: float | None = None,
     debug: bool = False,
+    start_id: str | None = None,
+    goal_id: str | None = None,
 ) -> dict:
-    stops = route_stops_for_orders(scenario, orders)
+    start = start_id or scenario.depot_id
+    goal = goal_id or start
+    stops = route_stops_for_orders(scenario, orders, start, goal)
     path, visited, travel_minutes, distance_km = expand_route_with_astar(scenario, stops)
     capacity = capacity_kg or scenario.capacity_kg
     load = 0.0
@@ -184,7 +220,7 @@ def evaluate_delivery_order(
     arrival_times: dict[str, float] = {}
     pickup_times: dict[str, float] = {}
     trace_steps: list[TraceStep] = []
-    current_position = scenario.depot_id
+    current_position = start
     carrying: list[str] = []
     pending = [order.id for order in orders]
     delivered: list[str] = []
@@ -192,7 +228,7 @@ def evaluate_delivery_order(
         state_snapshot(scenario, current_position, current_time, carrying, pending, delivered).model_dump()
     ]
     for order in orders:
-        pickup = order.pickup_node_id or scenario.depot_id
+        pickup = order.pickup_node_id or start
         dropoff = order.dropoff_node_id or order.node_id
         pickup_path, _, pickup_minutes, _ = expand_route_with_astar(scenario, [current_position, pickup])
         if not pickup_path:
@@ -251,7 +287,7 @@ def evaluate_delivery_order(
         current_position = dropoff
         state_history.append(state_snapshot(scenario, current_position, current_time, carrying, pending, delivered).model_dump())
 
-    return_path, _, return_minutes, _ = expand_route_with_astar(scenario, [current_position, scenario.depot_id])
+    return_path, _, return_minutes, _ = expand_route_with_astar(scenario, [current_position, goal])
     if return_path:
         current_time += return_minutes
         service_path = path
@@ -282,16 +318,16 @@ def evaluate_delivery_order(
     }
 
 
-def _nearest_neighbor(scenario: Scenario, orders: list[Order]) -> list[Order]:
+def _nearest_neighbor(scenario: Scenario, orders: list[Order], start_id: str | None = None) -> list[Order]:
     remaining = orders[:]
-    current = scenario.depot_id
+    current = start_id or scenario.depot_id
     planned: list[Order] = []
     while remaining:
         next_order = min(
             remaining,
             key=lambda order: (
-                astar(scenario, current, order.pickup_node_id or scenario.depot_id).total_minutes
-                + astar(scenario, order.pickup_node_id or scenario.depot_id, order.dropoff_node_id or order.node_id).total_minutes
+                astar(scenario, current, order.pickup_node_id or current).total_minutes
+                + astar(scenario, order.pickup_node_id or current, order.dropoff_node_id or order.node_id).total_minutes
             ),
         )
         planned.append(next_order)
@@ -305,9 +341,11 @@ def simple_hill_climbing(
     orders: list[Order],
     capacity_kg: float | None = None,
     debug: bool = False,
+    start_id: str | None = None,
+    goal_id: str | None = None,
 ) -> dict:
-    current = _nearest_neighbor(scenario, orders)
-    current_cost = _state_cost(scenario, current, capacity_kg)
+    current = _nearest_neighbor(scenario, orders, start_id)
+    current_cost = _state_cost(scenario, current, capacity_kg, start_id, goal_id)
     trace_steps: list[TraceStep] = []
     if debug:
         _trace_local_state(
@@ -324,6 +362,8 @@ def simple_hill_climbing(
                 "comparison": ">",
                 "result": "INIT",
             },
+            start_id,
+            goal_id,
         )
     iterations = 0
     while iterations < 80:
@@ -331,7 +371,7 @@ def simple_hill_climbing(
         iterations += 1
         current_value = -current_cost
         for i, j, candidate in _swap_neighbors(current):
-            candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+            candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
             candidate_value = -candidate_cost
             if debug:
                 _trace_local_state(
@@ -351,6 +391,8 @@ def simple_hill_climbing(
                         "comparison": "candidateValue > currentValue",
                         "result": "ACCEPT_FIRST_BETTER" if candidate_value > current_value else "REJECT",
                     },
+                    start_id,
+                    goal_id,
                 )
             if candidate_value > current_value:
                 current = candidate
@@ -371,9 +413,11 @@ def simple_hill_climbing(
                         "trap": "local_optimum",
                         "result": "STOP",
                     },
+                    start_id,
+                    goal_id,
                 )
             break
-    result = evaluate_delivery_order(scenario, current, capacity_kg, debug)
+    result = evaluate_delivery_order(scenario, current, capacity_kg, debug, start_id, goal_id)
     result["iterations"] = iterations
     result["traceSteps"] = trace_steps + result["traceSteps"]
     return result
@@ -384,9 +428,11 @@ def steepest_ascent_hill_climbing(
     orders: list[Order],
     capacity_kg: float | None = None,
     debug: bool = False,
+    start_id: str | None = None,
+    goal_id: str | None = None,
 ) -> dict:
-    current = _nearest_neighbor(scenario, orders)
-    current_cost = _state_cost(scenario, current, capacity_kg)
+    current = _nearest_neighbor(scenario, orders, start_id)
+    current_cost = _state_cost(scenario, current, capacity_kg, start_id, goal_id)
     trace_steps: list[TraceStep] = []
     iterations = 0
     while iterations < 80:
@@ -399,7 +445,7 @@ def steepest_ascent_hill_climbing(
         neighbor_count = 0
         for i, j, candidate in _swap_neighbors(current):
             neighbor_count += 1
-            candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+            candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
             candidate_value = -candidate_cost
             if candidate_value > best_value:
                 best_neighbor = candidate
@@ -424,12 +470,14 @@ def steepest_ascent_hill_climbing(
                     "comparison": "bestNeighborValue > currentValue",
                     "result": "MOVE" if best_value > current_value else "STOP",
                 },
+                start_id,
+                goal_id,
             )
         if best_value <= current_value:
             break
         current = best_neighbor
         current_cost = best_cost
-    result = evaluate_delivery_order(scenario, current, capacity_kg, debug)
+    result = evaluate_delivery_order(scenario, current, capacity_kg, debug, start_id, goal_id)
     result["iterations"] = iterations
     result["traceSteps"] = trace_steps + result["traceSteps"]
     return result
@@ -441,9 +489,11 @@ def sideways_hill_climbing(
     capacity_kg: float | None = None,
     debug: bool = False,
     sideways_limit: int = 12,
+    start_id: str | None = None,
+    goal_id: str | None = None,
 ) -> dict:
-    current = _nearest_neighbor(scenario, orders)
-    current_cost = _state_cost(scenario, current, capacity_kg)
+    current = _nearest_neighbor(scenario, orders, start_id)
+    current_cost = _state_cost(scenario, current, capacity_kg, start_id, goal_id)
     trace_steps: list[TraceStep] = []
     seen = {_state_key(current)}
     sideways_moves = 0
@@ -455,7 +505,7 @@ def sideways_hill_climbing(
         for i, j, candidate in _swap_neighbors(current):
             if _state_key(candidate) in seen:
                 continue
-            candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+            candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
             candidate_value = -candidate_cost
             if candidate_value >= current_value:
                 candidates.append((candidate_value, candidate_cost, i, j, candidate))
@@ -474,6 +524,8 @@ def sideways_hill_climbing(
                         "sidewaysLimit": sideways_limit,
                         "result": "STOP",
                     },
+                    start_id,
+                    goal_id,
                 )
             break
         candidates.sort(key=lambda item: item[0], reverse=True)
@@ -494,6 +546,8 @@ def sideways_hill_climbing(
                         "sidewaysLimit": sideways_limit,
                         "result": "STOP",
                     },
+                    start_id,
+                    goal_id,
                 )
             break
         sideways_moves = sideways_moves + 1 if is_sideways else 0
@@ -518,11 +572,13 @@ def sideways_hill_climbing(
                     "candidatePoolSize": len(candidates),
                     "result": "MOVE",
                 },
+                start_id,
+                goal_id,
             )
         current = candidate
         current_cost = candidate_cost
         seen.add(_state_key(current))
-    result = evaluate_delivery_order(scenario, current, capacity_kg, debug)
+    result = evaluate_delivery_order(scenario, current, capacity_kg, debug, start_id, goal_id)
     result["iterations"] = iterations
     result["traceSteps"] = trace_steps + result["traceSteps"]
     return result
@@ -535,10 +591,12 @@ def random_restart_hill_climbing(
     debug: bool = False,
     restarts: int = 8,
     sideways_limit: int = 10,
+    start_id: str | None = None,
+    goal_id: str | None = None,
 ) -> dict:
     rng = random.Random(41)
     if len(orders) < 2:
-        result = evaluate_delivery_order(scenario, orders, capacity_kg, debug)
+        result = evaluate_delivery_order(scenario, orders, capacity_kg, debug, start_id, goal_id)
         result["iterations"] = 0
         result["restarts"] = 0
         return result
@@ -548,8 +606,8 @@ def random_restart_hill_climbing(
     total_iterations = 0
     restart_count = max(1, restarts)
     for restart_index in range(restart_count):
-        current = _nearest_neighbor(scenario, orders) if restart_index == 0 else rng.sample(orders, len(orders))
-        current_cost = _state_cost(scenario, current, capacity_kg)
+        current = _nearest_neighbor(scenario, orders, start_id) if restart_index == 0 else rng.sample(orders, len(orders))
+        current_cost = _state_cost(scenario, current, capacity_kg, start_id, goal_id)
         sideways_moves = 0
         seen = {_state_key(current)}
         if debug:
@@ -567,6 +625,8 @@ def random_restart_hill_climbing(
                     "randomized": restart_index > 0,
                     "result": "INIT_RESTART",
                 },
+                start_id,
+                goal_id,
             )
         for _ in range(40):
             total_iterations += 1
@@ -575,7 +635,7 @@ def random_restart_hill_climbing(
             for i, j, candidate in _swap_neighbors(current):
                 if _state_key(candidate) in seen:
                     continue
-                candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+                candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
                 candidate_value = -candidate_cost
                 if candidate_value >= current_value:
                     pool.append((candidate_value, candidate_cost, i, j, candidate))
@@ -609,6 +669,8 @@ def random_restart_hill_climbing(
                         "swap": [i, j],
                         "result": "MOVE",
                     },
+                    start_id,
+                    goal_id,
                 )
             current = candidate
             current_cost = candidate_cost
@@ -616,22 +678,29 @@ def random_restart_hill_climbing(
         if current_cost < best_cost:
             best_state = current[:]
             best_cost = current_cost
-    result = evaluate_delivery_order(scenario, best_state, capacity_kg, debug)
+    result = evaluate_delivery_order(scenario, best_state, capacity_kg, debug, start_id, goal_id)
     result["iterations"] = total_iterations
     result["restarts"] = restart_count
     result["traceSteps"] = trace_steps[:140] + result["traceSteps"]
     return result
 
 
-def simulated_annealing(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None, debug: bool = False) -> dict:
+def simulated_annealing(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    debug: bool = False,
+    start_id: str | None = None,
+    goal_id: str | None = None,
+) -> dict:
     rng = random.Random(7)
-    current = _nearest_neighbor(scenario, orders)
+    current = _nearest_neighbor(scenario, orders, start_id)
     if len(current) < 2:
-        result = evaluate_delivery_order(scenario, current, capacity_kg, debug)
+        result = evaluate_delivery_order(scenario, current, capacity_kg, debug, start_id, goal_id)
         result["iterations"] = 0
         return result
     best = current[:]
-    current_cost = _state_cost(scenario, current, capacity_kg)
+    current_cost = _state_cost(scenario, current, capacity_kg, start_id, goal_id)
     current_value = -current_cost
     best_cost = current_cost
     best_value = current_value
@@ -644,7 +713,7 @@ def simulated_annealing(scenario: Scenario, orders: list[Order], capacity_kg: fl
         candidate = current[:]
         i, j = rng.sample(range(len(candidate)), 2)
         candidate[i], candidate[j] = candidate[j], candidate[i]
-        candidate_cost = _state_cost(scenario, candidate, capacity_kg)
+        candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
         candidate_value = -candidate_cost
         delta = candidate_value - current_value
         probability = 1.0 if delta > 0 else math.exp(delta / temperature)
@@ -676,6 +745,8 @@ def simulated_annealing(scenario: Scenario, orders: list[Order], capacity_kg: fl
                     "swap": [i, j],
                     "result": "ACCEPT" if accept else "REJECT",
                 },
+                start_id,
+                goal_id,
             )
         if accept:
             current = candidate
@@ -686,19 +757,26 @@ def simulated_annealing(scenario: Scenario, orders: list[Order], capacity_kg: fl
             best_cost = current_cost
             best_value = current_value
         temperature *= cooling_rate
-    result = evaluate_delivery_order(scenario, best, capacity_kg, debug)
+    result = evaluate_delivery_order(scenario, best, capacity_kg, debug, start_id, goal_id)
     result["iterations"] = iterations
     result["traceSteps"] = trace_steps[:80] + result["traceSteps"]
     return result
 
 
-def local_beam_search(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None, debug: bool = False) -> dict:
+def local_beam_search(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    debug: bool = False,
+    start_id: str | None = None,
+    goal_id: str | None = None,
+) -> dict:
     rng = random.Random(23)
     if len(orders) < 2:
-        result = evaluate_delivery_order(scenario, orders, capacity_kg, debug)
+        result = evaluate_delivery_order(scenario, orders, capacity_kg, debug, start_id, goal_id)
         result["iterations"] = 0
         return result
-    base = _nearest_neighbor(scenario, orders)
+    base = _nearest_neighbor(scenario, orders, start_id)
     beam = [base]
     while len(beam) < min(4, math.factorial(len(orders))):
         candidate = rng.sample(base, len(base))
@@ -716,7 +794,11 @@ def local_beam_search(scenario: Scenario, orders: list[Order], capacity_kg: floa
                     neighbor = route[:]
                     neighbor[i], neighbor[j] = neighbor[j], neighbor[i]
                     candidates.append(neighbor)
-        scored = sorted(candidates, key=lambda route: _state_value(scenario, route, capacity_kg), reverse=True)
+        scored = sorted(
+            candidates,
+            key=lambda route: _state_value(scenario, route, capacity_kg, start_id, goal_id),
+            reverse=True,
+        )
         next_beam: list[list[Order]] = []
         for route in scored:
             if route not in next_beam:
@@ -725,7 +807,7 @@ def local_beam_search(scenario: Scenario, orders: list[Order], capacity_kg: floa
                 break
         beam = next_beam
         if debug:
-            best_cost = _state_cost(scenario, beam[0], capacity_kg)
+            best_cost = _state_cost(scenario, beam[0], capacity_kg, start_id, goal_id)
             _trace_local_state(
                 trace_steps,
                 scenario,
@@ -746,15 +828,24 @@ def local_beam_search(scenario: Scenario, orders: list[Order], capacity_kg: floa
                     "bestValue": round(-best_cost, 2),
                     "result": "KEEP_K_BEST",
                 },
+                start_id,
+                goal_id,
             )
-    result = evaluate_delivery_order(scenario, beam[0], capacity_kg, debug)
+    result = evaluate_delivery_order(scenario, beam[0], capacity_kg, debug, start_id, goal_id)
     result["iterations"] = iterations
     result["traceSteps"] = trace_steps + result["traceSteps"]
     return result
 
 
-def hill_climbing(scenario: Scenario, orders: list[Order], capacity_kg: float | None = None, debug: bool = False) -> dict:
-    return simple_hill_climbing(scenario, orders, capacity_kg, debug)
+def hill_climbing(
+    scenario: Scenario,
+    orders: list[Order],
+    capacity_kg: float | None = None,
+    debug: bool = False,
+    start_id: str | None = None,
+    goal_id: str | None = None,
+) -> dict:
+    return simple_hill_climbing(scenario, orders, capacity_kg, debug, start_id, goal_id)
 
 
 DELIVERY_ALGORITHMS = {
