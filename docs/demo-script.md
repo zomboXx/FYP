@@ -25,10 +25,11 @@ Nếu dùng Vercel, SQLite chỉ là dữ liệu demo tạm thời. Nếu dữ l
 4. Chuyển sang Uninformed Search/BFS hoặc UCS để so sánh tiêu chí mở rộng node.
 5. Chuyển sang Local Search/Hill Climbing để minh họa tối ưu thứ tự nhiều đơn hàng.
 6. Chuyển sang Complex/Online Replanning để trình bày observation, belief update và route mới khi phát hiện sự cố.
-7. Chuyển sang CSP/Forward Checking để minh họa assignment, domain và ràng buộc pickup-before-dropoff.
-8. Chuyển sang Adversarial/Minimax và Alpha-Beta để giải thích MAX route, MIN disruption và nhánh bị prune.
-9. Mở **Admin Permissions**, tắt một thuật toán cho nhóm `standard`, sau đó đăng nhập `shipper_a` để chứng minh guard API.
-10. Đăng nhập `shipper_b`, vào **Shipper Mode**, nhận đơn parcel/grocery và lập tuyến từ kho.
+7. Chuyển sang Complex/AND-OR Search để trình bày conditional plan: nếu cạnh bất định thông thì đi route chính, nếu disrupted thì đi route dự phòng; nhấn mạnh completeness chỉ đảm bảo khi mọi outcome trong mô hình đều có nhánh về goal.
+8. Chuyển sang CSP/Forward Checking để minh họa assignment, domain và ràng buộc pickup-before-dropoff.
+9. Chuyển sang Adversarial/Minimax và Alpha-Beta để giải thích MAX route, MIN disruption và nhánh bị prune.
+10. Mở **Admin Permissions**, tắt một thuật toán cho nhóm `standard`, sau đó đăng nhập `shipper_a` để chứng minh guard API.
+11. Đăng nhập `shipper_b`, vào **Shipper Mode**, nhận đơn parcel/grocery và lập tuyến từ kho.
 
 ## Câu kết
 

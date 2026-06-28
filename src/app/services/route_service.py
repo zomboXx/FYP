@@ -172,7 +172,10 @@ def run_complex_search(request: ComplexSearchRequest, user: UserPublic) -> Algor
         runtimeMs=round(runtime_ms, 3),
         metrics=metrics,
         explanation=(
-            f"{request.algorithm} xu ly {request.hiddenEvent} trong moi truong partial observable; "
+            f"{request.algorithm} lap conditional plan cho hidden event {request.hiddenEvent}; "
+            f"complete={result.get('complete', False)} tren mo hinh AND-OR."
+            if request.algorithm == "and_or"
+            else f"{request.algorithm} xu ly {request.hiddenEvent} trong moi truong partial observable; "
             f"sensor radius={request.sensorRadius}, re-plan {result.get('replans', 0)} lan."
         ),
         traceSteps=_enrich_trace_steps(result["traceSteps"]),

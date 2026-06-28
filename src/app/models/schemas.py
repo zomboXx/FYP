@@ -66,7 +66,7 @@ class DeliveryState(BaseModel):
 
 
 class PathfindingRequest(BaseModel):
-    algorithm: Literal["bfs", "dfs", "ucs", "greedy", "astar"]
+    algorithm: Literal["bfs", "dfs", "greedy", "astar"]
     startId: str
     goalId: str
     debug: bool = False
@@ -75,12 +75,7 @@ class PathfindingRequest(BaseModel):
 
 class DeliveryOptimizeRequest(BaseModel):
     algorithm: Literal[
-        "simple_hill_climbing",
-        "hill_climbing",
-        "steepest_ascent",
         "sideways_hill_climbing",
-        "random_restart",
-        "local_beam",
         "simulated_annealing",
     ]
     orderIds: list[str] | None = None
@@ -99,7 +94,7 @@ class ConstraintCheckRequest(BaseModel):
 
 
 class CspSolveRequest(BaseModel):
-    algorithm: Literal["backtracking", "forward_checking", "ac3", "min_conflicts"] = "forward_checking"
+    algorithm: Literal["backtracking", "forward_checking"] = "forward_checking"
     orderIds: list[str] | None = None
     capacityKg: float | None = None
     debug: bool = False
@@ -114,7 +109,7 @@ class EventSimulateRequest(BaseModel):
 
 
 class ComplexSearchRequest(BaseModel):
-    algorithm: Literal["belief_state", "online_replan", "expectimax"] = "online_replan"
+    algorithm: Literal["online_replan", "and_or"] = "online_replan"
     startId: str
     goalId: str
     sensorRadius: int = Field(default=1, ge=0, le=4)
@@ -255,14 +250,9 @@ class CompleteOrderRequest(BaseModel):
 
 class ShipperPlanRequest(BaseModel):
     algorithm: Literal[
-        "simple_hill_climbing",
-        "hill_climbing",
-        "steepest_ascent",
         "sideways_hill_climbing",
-        "random_restart",
-        "local_beam",
         "simulated_annealing",
-    ] = "simple_hill_climbing"
+    ] = "sideways_hill_climbing"
     startId: str | None = None
     routingStrategy: Literal["nearest_neighbor", "global_optimization"] = "global_optimization"
     debug: bool = True

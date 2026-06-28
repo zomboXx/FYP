@@ -129,6 +129,20 @@ def test_partial_observation_reveals_hidden_edge_and_replans():
     assert any(step.debugData.get("observation") for step in result["traceSteps"])
 
 
+def test_and_or_search_returns_complete_conditional_plan():
+    scenario = load_osm_cached_scenario()
+    result = complex_search(scenario, "and_or", "W1", "D1", 1, "accident", debug=True)
+    plan = result["conditionalPlan"]
+    assert result["path"][0] == "W1"
+    assert result["path"][-1] == "D1"
+    assert plan["complete"] is True
+    assert plan["ifOpen"]
+    assert plan["ifDisrupted"]
+    assert plan["ifOpen"] != plan["ifDisrupted"]
+    assert any(step.phase == "OR_CHOOSE_ACTION" for step in result["traceSteps"])
+    assert any(step.phase == "AND_ENV_OUTCOME" for step in result["traceSteps"])
+
+
 def test_csp_solver_handles_valid_and_infeasible_order_sets():
     scenario = load_osm_cached_scenario()
     valid = solve_delivery_csp(scenario, "forward_checking", ["O4"], 22, debug=True)

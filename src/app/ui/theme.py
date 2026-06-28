@@ -24,7 +24,7 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "label": "Uninformed Search",
         "short": "UNINFORMED",
         "mode": "pathfinding",
-        "algorithms": [("bfs", "BFS"), ("dfs", "DFS"), ("ucs", "UCS")],
+        "algorithms": [("bfs", "BFS"), ("dfs", "DFS")],
     },
     "informed": {
         "label": "Informed Search",
@@ -37,11 +37,7 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "short": "LOCAL SEARCH",
         "mode": "delivery",
         "algorithms": [
-            ("simple_hill_climbing", "Simple Hill Climbing"),
-            ("steepest_ascent", "Steepest-Ascent"),
-            ("sideways_hill_climbing", "Sideways Moves"),
-            ("random_restart", "Random-Restart"),
-            ("local_beam", "Local Beam Search"),
+            ("sideways_hill_climbing", "Hill Climb (Bonus Sideway)"),
             ("simulated_annealing", "Simulated Annealing"),
         ],
     },
@@ -50,9 +46,8 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "short": "COMPLEX ENV",
         "mode": "complex",
         "algorithms": [
-            ("belief_state", "Belief-State Search"),
-            ("online_replan", "Online Replanning"),
-            ("expectimax", "Expectimax Evaluator"),
+            ("online_replan", "Online Re-planning"),
+            ("and_or", "AND-OR Search"),
         ],
     },
     "csp": {
@@ -62,8 +57,6 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "algorithms": [
             ("backtracking", "Backtracking Search"),
             ("forward_checking", "Forward Checking"),
-            ("ac3", "Arc Consistency (AC-3)"),
-            ("min_conflicts", "Min-Conflicts"),
         ],
     },
     "adversarial": {

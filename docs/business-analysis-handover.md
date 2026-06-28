@@ -1,6 +1,6 @@
 # Tài liệu BA handover - Find Your Path
 
-Cập nhật: 2026-06-22  
+Cập nhật: 2026-06-28
 Phạm vi: hỗ trợ người mới tham gia dự án hiểu nghiệp vụ, kiến trúc, dữ liệu, luồng người dùng và tiêu chí kiểm tra trước khi làm việc.
 
 ## 1. Tóm tắt dự án
@@ -182,7 +182,7 @@ Kết quả mong muốn: người demo có đủ dữ liệu để giải thích
 | Uninformed Search | `bfs`, `dfs`, `ucs` | `/api/pathfinding/run` | Baseline tìm đường không dùng heuristic. |
 | Informed Search | `greedy`, `astar` | `/api/pathfinding/run` | So sánh quyết định dựa trên heuristic và cost. |
 | Local Search | `hill_climbing`, `simulated_annealing`, `local_beam`, `genetic` | `/api/delivery/optimize`, `/api/shipper/routes/plan` | Tối ưu thứ tự giao nhiều đơn. |
-| Complex Environment | `belief_state`, `online_replan`, `expectimax` | `/api/complex/run`, `/api/events/simulate` | Mô phỏng quan sát không đầy đủ và replan khi có sự cố. |
+| Complex Environment | `belief_state`, `online_replan`, `and_or`, `expectimax` | `/api/complex/run`, `/api/events/simulate` | Mô phỏng quan sát không đầy đủ, replan khi có sự cố và conditional plan cho outcome bất định. |
 | CSP | `backtracking`, `forward_checking` | `/api/csp/solve`, `/api/constraints/check` | Kiểm ràng buộc pickup/dropoff, capacity, deadline. |
 | Adversarial Search | `minimax`, `alpha_beta` | `/api/adversarial/run` | Chọn route robust trước disruption bất lợi. |
 
@@ -272,7 +272,7 @@ Scenario gồm:
 | POST | `/api/delivery/optimize` | Tối ưu thứ tự giao bằng Local Search. |
 | POST | `/api/constraints/check` | Kiểm tra ràng buộc một route. |
 | POST | `/api/csp/solve` | Giải lịch giao bằng CSP. |
-| POST | `/api/complex/run` | Chạy belief-state, online replanning, expectimax. |
+| POST | `/api/complex/run` | Chạy belief-state, online replanning, AND-OR Search, expectimax. |
 | POST | `/api/events/simulate` | Mô phỏng event động và replan. |
 | POST | `/api/adversarial/run` | Chạy minimax hoặc alpha-beta. |
 | POST | `/api/rl/train` | Endpoint legacy Q-learning. |
@@ -336,6 +336,7 @@ Quy tắc quan trọng khi code:
 
 - A* trả trace có frontier, visited, cost và heuristic.
 - Complex online replanning trả observed edges và final path đến goal.
+- Complex AND-OR Search trả conditional plan có nhánh `ifOpen`, `ifDisrupted` và cờ `complete`.
 - CSP forward checking trả assignment khi hợp lệ và trace prune khi infeasible.
 - Adversarial alpha-beta cho cùng game value với minimax và mở rộng số node không nhiều hơn minimax.
 
@@ -445,6 +446,7 @@ Nếu hook fail, cần sửa nguyên nhân trước khi bàn giao.
 | Trace step | Một bước giải thích trong quá trình thuật toán chạy. |
 | Frontier | Tập node đang chờ xét trong thuật toán tìm kiếm. |
 | Belief state | Trạng thái niềm tin khi môi trường chưa quan sát đầy đủ. |
+| AND-OR Search | Tìm kiếm trong môi trường bất định, trả kế hoạch có điều kiện; OR là agent chọn hành động, AND là mọi outcome môi trường cần được xử lý. |
 | Forward checking | Kỹ thuật CSP cắt bớt domain sớm khi phát hiện vi phạm. |
 | Alpha-beta pruning | Tối ưu minimax bằng cách bỏ qua nhánh không ảnh hưởng kết quả. |
 

@@ -29,7 +29,7 @@ Defense Lab là màn hình trình bày thuật toán. Mỗi nhóm thuật toán 
 
 - Uninformed/Informed: frontier, visited, path, cost, heuristic.
 - Local Search: candidate route, best route, cost delta, temperature, beam hoặc generation.
-- Complex Environment: hidden edges, observed edges, belief state và route sau replan.
+- Complex Environment: hidden edges, observed edges, belief state, route sau replan và AND-OR conditional plan với nhánh chính/nhánh dự phòng.
 - CSP: assignment, domain, backtrack và forward checking.
 - Adversarial: game tree, MAX/MIN, alpha, beta và prune.
 

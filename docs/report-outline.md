@@ -37,14 +37,14 @@
 - Uninformed Search: BFS, DFS, UCS.
 - Informed Search: Greedy Best-First Search và A*.
 - Local Search: Hill Climbing, Simulated Annealing, Local Beam và Genetic Algorithm.
-- Complex Environment: Belief-State Search, Online Replanning và Expectimax.
+- Complex Environment: Belief-State Search, Online Replanning, AND-OR Search và Expectimax.
 - CSP: Backtracking + MRV và Forward Checking.
 - Adversarial Search: Minimax và Alpha-Beta.
 
 ## 6. Kết quả thực nghiệm
 
 - Bảng so sánh path, visited nodes, runtime và cost.
-- Trace step-by-step để trình bày frontier, visited, `g`, `h`, `f`, belief state, CSP domain hoặc alpha-beta.
+- Trace step-by-step để trình bày frontier, visited, `g`, `h`, `f`, belief state, AND-OR conditional plan, CSP domain hoặc alpha-beta.
 - Kịch bản shipper: lọc đơn, nhận đơn, lập tuyến và xem playback hướng di chuyển.
 - Kịch bản admin: bật/tắt thuật toán theo nhóm shipper để chứng minh phân quyền.
 

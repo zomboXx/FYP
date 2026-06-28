@@ -18,6 +18,7 @@ Bản deploy hiện tại dùng SQLite tạm thời cho mục đích demo. Dữ 
 - Shipper xem đơn khả dụng, nhận đơn, lập tuyến và hoàn tất đơn.
 - Bản đồ Leaflet/OpenStreetMap hiển thị điểm nhận, điểm giao và tuyến đường.
 - Defense Lab hỗ trợ quan sát kết quả và debug từng nhóm thuật toán.
+- Nhóm Complex Environment có Online Replanning và AND-OR Search để trình bày partial observation, belief update và conditional plan.
 
 Route được tính bởi code Python trong project, không gọi Google Directions, OSRM hoặc routing service bên ngoài để thay thế thuật toán.
 
@@ -123,6 +124,7 @@ Nếu không set `FYP_DB_PATH`, app dùng `src/app/data/fyp.sqlite` khi chạy l
 - `docs/database-guide.md`: cách xem SQLite local và ghi chú storage trên Vercel.
 - `docs/ui-ux-overview.md`: tổng quan UI/UX.
 - `docs/report-outline.md`: đề cương báo cáo học thuật.
+- `docs/academic-analysis.md`: phân tích học thuật, mô hình state và tính chất thuật toán.
 
 ## Ghi chú dữ liệu bản đồ
 

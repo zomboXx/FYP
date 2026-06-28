@@ -159,7 +159,7 @@ def test_order_filter_accept_and_shipper_plan_route():
     assert accepted.status_code == 200
     planned = client.post(
         "/api/shipper/routes/plan",
-        json={"algorithm": "hill_climbing", "debug": True},
+        json={"algorithm": "sideways_hill_climbing", "debug": True},
         headers=auth(token),
     )
     assert planned.status_code == 200
@@ -331,6 +331,24 @@ def test_complex_and_csp_endpoints_return_structured_debug_traces():
     assert complex_body["metrics"]["observedEdges"]
     assert any(step["debugData"] for step in complex_body["traceSteps"])
 
+    and_or_response = client.post(
+        "/api/complex/run",
+        json={
+            "algorithm": "and_or",
+            "startId": "W1",
+            "goalId": "D1",
+            "sensorRadius": 1,
+            "hiddenEvent": "accident",
+            "debug": True,
+        },
+        headers=auth(token),
+    )
+    assert and_or_response.status_code == 200
+    and_or_body = and_or_response.json()
+    assert and_or_body["metrics"]["conditionalPlan"]["complete"] is True
+    assert and_or_body["metrics"]["conditionalPlan"]["ifDisrupted"]
+    assert any(step["phase"] == "AND_ENV_OUTCOME" for step in and_or_body["traceSteps"])
+
     csp_response = client.post(
         "/api/csp/solve",
         json={"algorithm": "forward_checking", "orderIds": ["O4"], "capacityKg": 22, "debug": True},
@@ -346,9 +364,24 @@ def test_permissions_show_six_active_groups_and_no_rl_endpoint():
     token = login("admin", "admin123")
     permissions = client.get("/api/admin/permissions", headers=auth(token))
     assert permissions.status_code == 200
-    groups = {row["algorithmGroup"] for row in permissions.json()}
+    rows = permissions.json()
+    groups = {row["algorithmGroup"] for row in rows}
+    algorithm_names = {row["algorithmName"] for row in rows}
     assert groups == {"uninformed", "informed", "local_search", "complex", "csp", "adversarial"}
-    assert all(row["algorithmName"] != "q_learning" for row in permissions.json())
+    assert algorithm_names == {
+        "bfs",
+        "dfs",
+        "astar",
+        "greedy",
+        "sideways_hill_climbing",
+        "simulated_annealing",
+        "backtracking",
+        "forward_checking",
+        "online_replan",
+        "and_or",
+        "minimax",
+        "alpha_beta",
+    }
 
     openapi = client.get("/openapi.json")
     assert "/api/rl/train" not in openapi.json()["paths"]

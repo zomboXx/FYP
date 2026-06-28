@@ -13,6 +13,7 @@
 | Local Search | Genetic Algorithm | Tối ưu bằng quần thể route | Phù hợp không gian hoán vị lớn | Runtime cao hơn, kết quả phụ thuộc seed | Demo generation và best cost |
 | Complex Environment | Belief-State Search | Lập kế hoạch khi chưa biết đầy đủ cạnh bị ảnh hưởng | Thể hiện partial observability rõ | Cần mô hình belief | Demo belief trước/sau observation |
 | Complex Environment | Online Replanning | Quan sát rồi lập lại tuyến khi phát hiện sự cố | Gần bài toán giao hàng thực tế | Phụ thuộc sensor radius | Demo route cũ và route mới |
+| Complex Environment | AND-OR Search | Lập kế hoạch có điều kiện khi một hành động có nhiều outcome môi trường | Đúng tinh thần OR node/AND node, dễ vấn đáp về completeness | Cần mô hình hóa đủ outcome; cây lớn nếu nhiều bất định | Demo nhánh đường thông và nhánh đi vòng khi disruption xảy ra |
 | Complex Environment | Expectimax | Đánh giá rủi ro theo xác suất | Hợp lý khi disruption có xác suất | Cần xác suất đáng tin | Đóng vai trò stochastic evaluator |
 | CSP | Backtracking + MRV | Tìm thứ tự pickup/dropoff hợp lệ | Giải thích rõ assignment/domain | Có thể bùng nổ tổ hợp | Demo backtrack và MRV |
 | CSP | Forward Checking | Cắt domain sớm khi vi phạm ràng buộc | Phát hiện infeasible nhanh hơn | Tốn thêm bước kiểm tra consistency | Demo domain bị prune |
@@ -24,6 +25,6 @@
 - Uninformed Search chỉ cần tìm được đường hoặc tối ưu theo tiêu chí đơn giản, không dùng tri thức tọa độ.
 - Informed Search dùng tọa độ để tính heuristic, nhưng quyết định vẫn do thuật toán Python của project thực hiện.
 - Local Search tối ưu thứ tự nhiều đơn, không phải tìm một đường đơn lẻ.
-- Complex Environment mô phỏng shipper chỉ thấy một phần môi trường và phải cập nhật belief khi quan sát.
+- Complex Environment mô phỏng shipper chỉ thấy một phần môi trường và phải cập nhật belief khi quan sát. Với AND-OR Search, kết quả là conditional plan: OR node là agent chọn hành động, AND node là các outcome môi trường phải được xử lý hết.
 - CSP tập trung vào ràng buộc hợp lệ: tải trọng, deadline, pickup trước dropoff và cạnh bị chặn.
 - Adversarial Search không mô phỏng hai shipper đua nhau; nó mô phỏng worst-case disruption trên tuyến đường.

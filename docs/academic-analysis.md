@@ -11,7 +11,7 @@ Find Your Path mô phỏng bài toán lập lộ trình giao hàng xe máy trong
 1. **Uninformed Search:** BFS, DFS, UCS trên môi trường deterministic và fully observable.
 2. **Informed Search:** Greedy Best-First Search và A* dùng heuristic theo tọa độ.
 3. **Local Search:** Hill Climbing, Simulated Annealing, Local Beam và Genetic Algorithm để tối ưu thứ tự nhiều đơn hàng.
-4. **Complex Environment / Partial Observability:** Belief-State Search, Online Replanning và Expectimax khi một phần cạnh bị ẩn.
+4. **Complex Environment / Partial Observability:** Belief-State Search, Online Replanning, AND-OR Search và Expectimax khi một phần cạnh bị ẩn hoặc hành động có nhiều kết quả môi trường.
 5. **CSP:** Backtracking + MRV và Forward Checking cho ràng buộc pickup/dropoff, tải trọng, deadline và blocked edge.
 6. **Adversarial Search:** Minimax và Alpha-Beta cho worst-case route planning, trong đó MIN chọn disruption bất lợi.
 
@@ -44,3 +44,16 @@ Route evaluator cộng thêm penalty cho giao trễ và vượt tải. Vì vậy
 - Admin bật/tắt thuật toán theo nhóm shipper.
 - Shipper nhận đơn, lập lộ trình và xem playback hướng đi.
 - Test backend bao phủ các hành vi cốt lõi.
+
+## Đánh giá nhóm Complex Environment
+
+Trong bài toán giao hàng, state đầy đủ không chỉ là vị trí shipper mà còn gồm tình trạng thật của các cạnh: traffic, blocked edge và sự kiện ẩn. Agent biết vị trí hiện tại và goal nghiệp vụ, nhưng chưa chắc biết toàn bộ trạng thái môi trường.
+
+- **Online Replanning:** agent đi theo bản đồ đang tin tưởng, quan sát sự kiện khi vào sensor radius, cập nhật belief rồi gọi A* lại từ node hiện tại tới goal. Thuật toán phù hợp khi hệ thống phản ứng sau khi có percept mới.
+- **AND-OR Search:** agent lập kế hoạch có điều kiện trước khi biết outcome của cạnh bất định. OR node là lựa chọn hành động của agent; AND node là các kết quả môi trường như cạnh thông hoặc bị disrupted. Kết quả không chỉ là một path, mà là conditional plan gồm nhánh chính và nhánh dự phòng.
+
+Về bốn tính chất đánh giá thuật toán:
+
+- Online Replanning hoàn thiện nếu mỗi lần quan sát xong, planner con tìm được path trên graph hữu hạn và số lần cập nhật môi trường hữu hạn. Nó không đảm bảo tối ưu toàn cục vì quyết định phụ thuộc percept đến muộn.
+- AND-OR Search hoàn thiện trên state space hữu hạn nếu transition model liệt kê đủ outcome, có kiểm tra chu trình và mỗi nhánh AND đều được giải. Nếu mô hình thiếu outcome hoặc graph vô hạn không kiểm soát, tính hoàn thiện không còn được đảm bảo.
+- Cả hai dùng A* như planner cấp thấp trên một world cụ thể; phần "complex" nằm ở cách agent xử lý thiếu thông tin và kết quả môi trường bất định.

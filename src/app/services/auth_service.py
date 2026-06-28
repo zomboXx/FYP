@@ -51,23 +51,14 @@ DB_PATH = load_db_path()
 ACTIVE_ALGORITHM_GROUPS = {
     "bfs": "uninformed",
     "dfs": "uninformed",
-    "ucs": "uninformed",
     "greedy": "informed",
     "astar": "informed",
-    "simple_hill_climbing": "local_search",
-    "hill_climbing": "local_search",
-    "steepest_ascent": "local_search",
     "sideways_hill_climbing": "local_search",
-    "random_restart": "local_search",
-    "local_beam": "local_search",
     "simulated_annealing": "local_search",
     "backtracking": "csp",
     "forward_checking": "csp",
-    "ac3": "csp",
-    "min_conflicts": "csp",
-    "belief_state": "complex",
     "online_replan": "complex",
-    "expectimax": "complex",
+    "and_or": "complex",
     "minimax": "adversarial",
     "alpha_beta": "adversarial",
 }
@@ -75,6 +66,16 @@ LEGACY_ALGORITHM_GROUPS = {
     "constraint": "csp",
 }
 ALGORITHM_GROUPS = {**ACTIVE_ALGORITHM_GROUPS, **LEGACY_ALGORITHM_GROUPS}
+STANDARD_DEFAULT_ALGORITHMS = {
+    "bfs",
+    "astar",
+    "sideways_hill_climbing",
+    "constraint",
+    "forward_checking",
+    "online_replan",
+    "and_or",
+    "minimax",
+}
 MIN_AVAILABLE_ORDERS = 7
 ORDER_CATEGORIES = ["food", "ride", "parcel", "grocery"]
 ORDER_URGENCIES = ["urgent", "normal", "low"]
@@ -182,7 +183,7 @@ def seed_demo_maps(db: sqlite3.Connection) -> None:
     scenario_json = json.dumps(load_osm_cached_scenario().model_dump(), ensure_ascii=False, separators=(",", ":"))
     now = int(time.time())
     groups = [
-        ("uninformed", "Uninformed baseline map", "Graph demo cho BFS, DFS va UCS."),
+        ("uninformed", "Uninformed baseline map", "Graph demo cho BFS va DFS."),
         ("informed", "Informed heuristic map", "Graph demo cho A* va Greedy Best-First."),
         ("local_search", "Local delivery map", "Graph demo cho nhom toi uu lo trinh giao hang."),
         ("complex", "Partial observability map", "Graph demo cho su kien an va re-plan."),
@@ -233,11 +234,7 @@ def seed_demo_data(db: sqlite3.Connection) -> None:
         )
     for group in ["standard", "priority"]:
         for name, algorithm_group in ALGORITHM_GROUPS.items():
-            enabled = 1 if group == "priority" or name in {
-                "bfs", "ucs", "astar", "simple_hill_climbing", "hill_climbing", "constraint", "forward_checking",
-                "ac3", "min_conflicts",
-                "online_replan", "expectimax", "minimax",
-            } else 0
+            enabled = 1 if group == "priority" or name in STANDARD_DEFAULT_ALGORITHMS else 0
             db.execute(
                 """
                 INSERT INTO algorithm_permissions(shipper_group, algorithm_group, algorithm_name, enabled)
@@ -247,6 +244,10 @@ def seed_demo_data(db: sqlite3.Connection) -> None:
                 """,
                 (group, algorithm_group, name, enabled),
             )
+    db.executemany(
+        "UPDATE algorithm_permissions SET enabled = 1 WHERE shipper_group = 'standard' AND algorithm_name = ?",
+        [(name,) for name in STANDARD_DEFAULT_ALGORITHMS],
+    )
     scenario = load_osm_cached_scenario()
     for order in scenario.orders:
         db.execute(

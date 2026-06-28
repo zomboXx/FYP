@@ -76,6 +76,181 @@ def _candidate_paths(base: Scenario, actual: Scenario, start: str, goal: str) ->
     return candidates
 
 
+def _select_uncertain_edge(path: list[str], hidden: set[tuple[str, str]]) -> tuple[str, str] | None:
+    for source, target in zip(path, path[1:]):
+        key = edge_key(source, target)
+        if key in hidden:
+            return key
+    return sorted(hidden)[0] if hidden else None
+
+
+def _scenario_with_actual_edges(base: Scenario, actual: Scenario, edges: set[tuple[str, str]]) -> Scenario:
+    branch = deepcopy(base)
+    for key in edges:
+        actual_edge = find_edge(actual, *key)
+        branch_edge = find_edge(branch, *key)
+        if actual_edge and branch_edge:
+            branch_edge.blocked = actual_edge.blocked
+            branch_edge.traffic = actual_edge.traffic
+    return branch
+
+
+def _and_or_plan(
+    scenario: Scenario,
+    actual: Scenario,
+    start: str,
+    goal: str,
+    hidden: set[tuple[str, str]],
+    debug: bool,
+) -> dict:
+    believed_plan = astar(scenario, start, goal)
+    uncertain_edge = _select_uncertain_edge(believed_plan.path, hidden)
+    uncertain_edges = {uncertain_edge} if uncertain_edge else set(hidden)
+    disrupted = _scenario_with_actual_edges(scenario, actual, uncertain_edges)
+    disrupted_plan = astar(disrupted, start, goal)
+    open_path = believed_plan.path
+    disrupted_path = disrupted_plan.path
+    complete = bool(open_path and disrupted_path)
+    selected_path = open_path if open_path else disrupted_path
+    edge_label = "-".join(uncertain_edge) if uncertain_edge else "none"
+    traces: list[TraceStep] = []
+
+    def add_trace(
+        phase: str,
+        current: str,
+        frontier: list[str],
+        candidate: list[str],
+        cost: float,
+        reason: str,
+        data: dict,
+    ) -> None:
+        if not debug:
+            return
+        traces.append(
+            TraceStep(
+                stepIndex=len(traces),
+                phase=phase,
+                currentNode=current,
+                frontier=frontier,
+                visitedNodes=list(dict.fromkeys(candidate)),
+                candidatePath=candidate,
+                costSoFar=round(cost, 2),
+                heuristic=float(len(frontier)),
+                decisionReason=reason,
+                debugData={
+                    "traceType": "and_or_search",
+                    "courseConcept": "AND-OR Search tra ve conditional plan: OR la agent chon action, AND la moi ket qua moi truong phai co nhanh xu ly.",
+                    **data,
+                },
+            )
+        )
+
+    add_trace(
+        "AND_OR_INIT",
+        start,
+        ["normal_world", f"{edge_label}_disrupted"],
+        [],
+        0,
+        "Khoi tao bai toan AND-OR: agent chua biet ket qua that cua canh bat dinh nen can ke hoach co dieu kien.",
+        {
+            "nodeType": "ROOT",
+            "possibleWorlds": ["normal_world", "disrupted_world"],
+            "uncertainEdge": edge_label,
+            "result": "INIT_CONDITIONAL_SEARCH",
+        },
+    )
+    add_trace(
+        "OR_CHOOSE_ACTION",
+        start,
+        ["try_primary_route", "use_contingency_route"],
+        open_path,
+        believed_plan.total_minutes,
+        "OR node: agent chon thu policy di theo route dang tin tuong, nhung phai kiem tra moi outcome cua moi truong.",
+        {
+            "nodeType": "OR",
+            "selectedAction": "try_primary_route",
+            "primaryPath": open_path,
+            "result": "CHOOSE_ACTION",
+        },
+    )
+    add_trace(
+        "AND_ENV_OUTCOME",
+        start,
+        [f"{edge_label}=open"],
+        open_path,
+        believed_plan.total_minutes,
+        "AND node outcome 1: neu canh bat dinh van di duoc, primary route dua agent toi goal.",
+        {
+            "nodeType": "AND",
+            "outcome": "open",
+            "outcomePath": open_path,
+            "outcomeSolved": bool(open_path),
+            "result": "CHECK_OUTCOME",
+        },
+    )
+    add_trace(
+        "AND_ENV_OUTCOME",
+        start,
+        [f"{edge_label}=disrupted"],
+        disrupted_path,
+        disrupted_plan.total_minutes,
+        "AND node outcome 2: neu hidden event xay ra, contingency route phai van dua agent toi goal.",
+        {
+            "nodeType": "AND",
+            "outcome": "disrupted",
+            "outcomePath": disrupted_path,
+            "outcomeSolved": bool(disrupted_path),
+            "result": "CHECK_OUTCOME",
+        },
+    )
+    add_trace(
+        "RETURN_CONDITIONAL_PLAN" if complete else "FAIL_CONDITIONAL_PLAN",
+        start,
+        [],
+        selected_path,
+        path_time(scenario, selected_path) if selected_path else BLOCKED_COST,
+        (
+            "Tat ca outcome trong mo hinh deu co nhanh ve goal, nen conditional plan hoan thien tren graph huu han nay."
+            if complete
+            else "Co it nhat mot outcome khong co route ve goal, nen AND-OR khong chung minh duoc ke hoach hoan thien."
+        ),
+        {
+            "nodeType": "RETURN",
+            "complete": complete,
+            "completenessCondition": "Dam bao hoan thien khi state space huu han, transition model day du va co visited/cycle guard.",
+            "result": "SOLUTION" if complete else "FAILURE",
+        },
+    )
+
+    return {
+        "path": selected_path,
+        "visited": list(dict.fromkeys(open_path + disrupted_path)),
+        "traceSteps": traces,
+        "initialPath": open_path,
+        "finalPath": selected_path,
+        "beliefMode": "conditional_plan",
+        "replans": 0,
+        "observedEdges": [],
+        "conditionalPlan": {
+            "uncertainEdge": edge_label,
+            "ifOpen": open_path,
+            "ifDisrupted": disrupted_path,
+            "complete": complete,
+        },
+        "andOrTree": {
+            "root": "OR",
+            "action": "try_primary_route",
+            "andOutcomes": [
+                {"outcome": "open", "path": open_path, "solved": bool(open_path)},
+                {"outcome": "disrupted", "path": disrupted_path, "solved": bool(disrupted_path)},
+            ],
+        },
+        "expandedAndOrNodes": len(traces) if debug else 5,
+        "complete": complete,
+        "completenessCondition": "Complete tren graph huu han khi tat ca outcome duoc mo hinh hoa va moi nhanh AND co route ve goal.",
+    }
+
+
 def _belief_plan(
     scenario: Scenario,
     actual: Scenario,
@@ -306,7 +481,9 @@ def complex_search(
 ) -> dict:
     actual, event_message = _hidden_event_scenario(scenario, hidden_event, start, goal)
     hidden = _changed_edges(scenario, actual)
-    if algorithm in {"belief_state", "expectimax"}:
+    if algorithm == "and_or":
+        result = _and_or_plan(scenario, actual, start, goal, hidden, debug)
+    elif algorithm in {"belief_state", "expectimax"}:
         result = _belief_plan(scenario, actual, start, goal, algorithm, debug)
     else:
         result = _online_replan(scenario, actual, start, goal, sensor_radius, hidden, debug)
