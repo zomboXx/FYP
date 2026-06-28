@@ -30,19 +30,19 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "label": "Informed Search",
         "short": "INFORMED",
         "mode": "pathfinding",
-        "algorithms": [("astar", "A*"), ("greedy", "Greedy Best-First")],
+        "algorithms": [("greedy", "Greedy Best-First Search"), ("astar", "A*")],
     },
     "local_search": {
         "label": "Local Search",
         "short": "LOCAL SEARCH",
         "mode": "delivery",
         "algorithms": [
-            ("sideways_hill_climbing", "Hill Climb (Bonus Sideway)"),
+            ("sideways_hill_climbing", "Hill Climbing"),
             ("simulated_annealing", "Simulated Annealing"),
         ],
     },
     "complex": {
-        "label": "Complex / Partial Observability",
+        "label": "Complex Environment Search",
         "short": "COMPLEX ENV",
         "mode": "complex",
         "algorithms": [
@@ -51,11 +51,11 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         ],
     },
     "csp": {
-        "label": "CSP",
+        "label": "Constraint Satisfaction Problem (CSP)",
         "short": "CSP",
         "mode": "csp",
         "algorithms": [
-            ("backtracking", "Backtracking Search"),
+            ("backtracking", "Backtracking"),
             ("forward_checking", "Forward Checking"),
         ],
     },
@@ -63,7 +63,7 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "label": "Adversarial Search",
         "short": "ADVERSARIAL",
         "mode": "adversarial",
-        "algorithms": [("minimax", "Minimax"), ("alpha_beta", "Alpha-Beta")],
+        "algorithms": [("minimax", "Minimax"), ("alpha_beta", "Alpha-Beta Pruning")],
     },
 }
 
