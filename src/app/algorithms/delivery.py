@@ -344,82 +344,144 @@ def simple_hill_climbing(
     start_id: str | None = None,
     goal_id: str | None = None,
 ) -> dict:
-    current = _nearest_neighbor(scenario, orders, start_id)
-    current_cost = _state_cost(scenario, current, capacity_kg, start_id, goal_id)
+    from app.algorithms.graph import build_adjacency, edge_time, heuristic_minutes, BLOCKED_COST
+
+    adjacency = build_adjacency(scenario)
+    start = start_id or scenario.depot_id
+    goal = goal_id or start
+    if not goal or goal == start:
+        last_order = orders[-1] if orders else None
+        goal = (last_order.dropoff_node_id or last_order.node_id) if last_order else start
+
+    current_node = start
+    current_h = heuristic_minutes(scenario, current_node, goal)
+    visited_path: list[str] = [current_node]
     trace_steps: list[TraceStep] = []
+    iterations = 0
+
+    def _frontier_ids(node: str) -> list[str]:
+        return [nid for nid, edge in adjacency.get(node, []) if edge_time(edge) < BLOCKED_COST and nid not in visited_path]
+
     if debug:
-        _trace_local_state(
-            trace_steps,
-            scenario,
-            "hill_climbing_init",
-            current,
-            current_cost,
-            "Khoi tao state ban dau. Trong demo nay h(state)=totalCost can giam, value=-h nen value cang lon cang tot.",
-            {
-                "courseConcept": "Simple Hill Climbing / First-Improvement Hill Climbing.",
-                "rule": "Duyet neighbor theo thu tu; gap neighbor dau tien co value(neighbor) > value(current) thi di ngay.",
-                "currentValue": round(-current_cost, 2),
-                "comparison": ">",
+        trace_steps.append(TraceStep(
+            stepIndex=0,
+            phase="hill_climbing_init",
+            currentNode=current_node,
+            frontier=_frontier_ids(current_node),
+            visitedNodes=visited_path[:],
+            candidatePath=visited_path[:],
+            costSoFar=0,
+            heuristic=round(current_h, 2),
+            decisionReason=f"Bat dau tai {current_node}, h={current_h:.2f}. Di toi node gan dich hon (h nho hon) theo do thi.",
+            debugData={
+                "traceType": "local_search",
+                "courseConcept": "Simple Hill Climbing / First-Improvement tren do thi.",
+                "rule": "Xet neighbor ke; gap neighbor dau tien co h(neighbor) < h(current) thi buoc sang.",
+                "currentH": round(current_h, 2),
+                "goal": goal,
                 "result": "INIT",
             },
-            start_id,
-            goal_id,
-        )
-    iterations = 0
-    while iterations < 80:
-        moved = False
+        ))
+
+    max_steps = len(scenario.nodes) * 3
+    while current_node != goal and iterations < max_steps:
         iterations += 1
-        current_value = -current_cost
-        for i, j, candidate in _swap_neighbors(current):
-            candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
-            candidate_value = -candidate_cost
+        moved = False
+        neighbors = adjacency.get(current_node, [])
+
+        for neighbor_id, edge in neighbors:
+            travel = edge_time(edge)
+            if travel >= BLOCKED_COST:
+                continue
+            if neighbor_id in visited_path:
+                continue
+            neighbor_h = heuristic_minutes(scenario, neighbor_id, goal)
+
             if debug:
-                _trace_local_state(
-                    trace_steps,
-                    scenario,
-                    "first_better_check",
-                    candidate,
-                    candidate_cost,
-                    f"Thu neighbor swap {i}-{j}: value={candidate_value:.2f}, current={current_value:.2f}.",
-                    {
-                        "courseConcept": "Neighbor duoc tao bang swap hai vi tri trong permutation don hang.",
-                        "currentState": _order_state(current),
-                        "currentValue": round(current_value, 2),
-                        "candidateValue": round(candidate_value, 2),
-                        "deltaValue": round(candidate_value - current_value, 2),
-                        "swap": [i, j],
-                        "comparison": "candidateValue > currentValue",
-                        "result": "ACCEPT_FIRST_BETTER" if candidate_value > current_value else "REJECT",
+                is_better = neighbor_h < current_h
+                trace_steps.append(TraceStep(
+                    stepIndex=len(trace_steps),
+                    phase="first_better_check",
+                    currentNode=current_node,
+                    frontier=_frontier_ids(current_node),
+                    visitedNodes=visited_path[:],
+                    candidatePath=visited_path + [neighbor_id],
+                    costSoFar=round(travel, 2),
+                    heuristic=round(neighbor_h, 2),
+                    decisionReason=f"Xet neighbor {neighbor_id}: h={neighbor_h:.2f}, current h={current_h:.2f}.",
+                    debugData={
+                        "traceType": "local_search",
+                        "courseConcept": "So sanh h(neighbor) voi h(current). Neu nho hon thi buoc di.",
+                        "currentNode": current_node,
+                        "neighborNode": neighbor_id,
+                        "currentH": round(current_h, 2),
+                        "neighborH": round(neighbor_h, 2),
+                        "edgeTime": round(travel, 2),
+                        "comparison": "h(neighbor) < h(current)",
+                        "result": "ACCEPT_FIRST_BETTER" if is_better else "REJECT",
                     },
-                    start_id,
-                    goal_id,
-                )
-            if candidate_value > current_value:
-                current = candidate
-                current_cost = candidate_cost
+                ))
+
+            if neighbor_h < current_h:
+                current_node = neighbor_id
+                current_h = neighbor_h
+                visited_path.append(current_node)
                 moved = True
                 break
+
         if not moved:
             if debug:
-                _trace_local_state(
-                    trace_steps,
-                    scenario,
-                    "hill_stop",
-                    current,
-                    current_cost,
-                    "Khong tim thay neighbor nao co value lon hon; dung tai local optimum.",
-                    {
-                        "courseConcept": "Hill Climbing co the ket o cuc tri cuc bo vi chi nhin neighbor gan.",
+                trace_steps.append(TraceStep(
+                    stepIndex=len(trace_steps),
+                    phase="hill_stop",
+                    currentNode=current_node,
+                    frontier=[],
+                    visitedNodes=visited_path[:],
+                    candidatePath=visited_path[:],
+                    costSoFar=round(current_h, 2),
+                    heuristic=round(current_h, 2),
+                    decisionReason=f"Khong co neighbor nao gan dich hon. Ket tai local optimum: {current_node}.",
+                    debugData={
+                        "traceType": "local_search",
+                        "courseConcept": "Hill Climbing ket o cuc tri cuc bo vi khong co neighbor ke nao co h nho hon.",
                         "trap": "local_optimum",
+                        "stuckAt": current_node,
+                        "currentH": round(current_h, 2),
                         "result": "STOP",
+                        "complete": True,
                     },
-                    start_id,
-                    goal_id,
-                )
+                ))
             break
-    result = evaluate_delivery_order(scenario, current, capacity_kg, debug, start_id, goal_id)
+
+    if debug and current_node == goal:
+        trace_steps.append(TraceStep(
+            stepIndex=len(trace_steps),
+            phase="goal_found",
+            currentNode=goal,
+            frontier=[],
+            visitedNodes=visited_path[:],
+            candidatePath=visited_path[:],
+            costSoFar=0,
+            heuristic=0,
+            decisionReason=f"Da den dich {goal} sau {iterations} buoc leo doi.",
+            debugData={
+                "traceType": "local_search",
+                "courseConcept": "Hill Climbing da tim duoc duong di toi dich.",
+                "path": visited_path,
+                "iterations": iterations,
+                "result": "GOAL_REACHED",
+                "complete": True,
+            },
+        ))
+
+    result = evaluate_delivery_order(scenario, orders, capacity_kg, False, start_id, goal_id)
     result["iterations"] = iterations
-    result["traceSteps"] = trace_steps + result["traceSteps"]
+    result["hillClimbingPath"] = visited_path
+    result["reachedGoal"] = current_node == goal
+    result["path"] = visited_path
+    result["visited"] = list(dict.fromkeys(visited_path))
+    result["stops"] = visited_path
+    result["traceSteps"] = trace_steps
     return result
 
 
@@ -693,73 +755,156 @@ def simulated_annealing(
     start_id: str | None = None,
     goal_id: str | None = None,
 ) -> dict:
+    import math
+    import random
+    from app.algorithms.graph import build_adjacency, edge_time, heuristic_minutes, BLOCKED_COST
+
     rng = random.Random(7)
-    current = _nearest_neighbor(scenario, orders, start_id)
-    if len(current) < 2:
-        result = evaluate_delivery_order(scenario, current, capacity_kg, debug, start_id, goal_id)
-        result["iterations"] = 0
-        return result
-    best = current[:]
-    current_cost = _state_cost(scenario, current, capacity_kg, start_id, goal_id)
-    current_value = -current_cost
-    best_cost = current_cost
-    best_value = current_value
-    temperature = 2.0
-    cooling_rate = 0.94
-    iterations = 0
+    adjacency = build_adjacency(scenario)
+    start = start_id or scenario.depot_id
+    goal = goal_id or start
+    if not goal or goal == start:
+        last_order = orders[-1] if orders else None
+        goal = (last_order.dropoff_node_id or last_order.node_id) if last_order else start
+
+    current_node = start
+    current_h = heuristic_minutes(scenario, current_node, goal)
+    visited_path: list[str] = [current_node]
     trace_steps: list[TraceStep] = []
-    while temperature > 0.01 and iterations < 250:
+    
+    T = 100.0
+    Tmin = 0.01
+    alpha = 0.95
+    iterations = 0
+
+    def _frontier_ids(node: str) -> list[str]:
+        return [nid for nid, edge in adjacency.get(node, []) if edge_time(edge) < BLOCKED_COST]
+
+    if debug:
+        trace_steps.append(TraceStep(
+            stepIndex=0,
+            phase="annealing_init",
+            currentNode=current_node,
+            frontier=_frontier_ids(current_node),
+            visitedNodes=visited_path[:],
+            candidatePath=visited_path[:],
+            costSoFar=0,
+            heuristic=round(current_h, 2),
+            decisionReason=f"Bat dau tai {current_node}, h={current_h:.2f}. T0={T}, alpha={alpha}.",
+            debugData={
+                "traceType": "local_search",
+                "courseConcept": "Simulated Annealing tren do thi.",
+                "rule": "Chon random neighbor. Neu h nho hon thi di, neu h lon hon thi xac suat p = exp(-delta/T).",
+                "currentH": round(current_h, 2),
+                "goal": goal,
+                "result": "INIT",
+            },
+        ))
+
+    max_steps = 1000
+    while T > Tmin and current_node != goal and iterations < max_steps:
         iterations += 1
-        candidate = current[:]
-        i, j = rng.sample(range(len(candidate)), 2)
-        candidate[i], candidate[j] = candidate[j], candidate[i]
-        candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
-        candidate_value = -candidate_cost
-        delta = candidate_value - current_value
-        probability = 1.0 if delta > 0 else math.exp(delta / temperature)
-        random_draw = 0.0 if delta > 0 else rng.random()
-        accept = delta > 0 or random_draw < probability
+        neighbors = _frontier_ids(current_node)
+        if not neighbors:
+            if debug:
+                trace_steps.append(TraceStep(
+                    stepIndex=len(trace_steps),
+                    phase="annealing_stop",
+                    currentNode=current_node,
+                    frontier=[],
+                    visitedNodes=visited_path[:],
+                    candidatePath=visited_path[:],
+                    costSoFar=round(current_h, 2),
+                    heuristic=round(current_h, 2),
+                    decisionReason=f"Kẹt ở {current_node} do khong co neighbor.",
+                    debugData={
+                        "traceType": "local_search",
+                        "trap": "dead_end",
+                        "stuckAt": current_node,
+                        "result": "STOP",
+                        "complete": True,
+                    },
+                ))
+            break
+
+        next_node = rng.choice(neighbors)
+        # Find travel cost just for display if needed
+        travel = 1.0
+        for nid, edge in adjacency.get(current_node, []):
+            if nid == next_node:
+                travel = edge_time(edge)
+                break
+                
+        next_h = heuristic_minutes(scenario, next_node, goal)
+        delta = next_h - current_h
+        
+        probability = 1.0 if delta < 0 else math.exp(-delta / T)
+        random_draw = 0.0 if delta < 0 else rng.random()
+        accept = random_draw < probability
+
         if debug:
-            _trace_local_state(
-                trace_steps,
-                scenario,
-                "annealing_step",
-                candidate,
-                candidate_cost,
-                (
-                    f"Chon ngau nhien neighbor, delta=value(next)-value(current)={delta:.2f}, "
-                    f"T={temperature:.2f}, p={probability:.3f}; {'chap nhan' if accept else 'tu choi'}."
-                ),
-                {
-                    "courseConcept": "Simulated Annealing: delta > 0 thi nhan, delta <= 0 thi nhan voi p=e^(delta/T).",
-                    "currentState": _order_state(current),
-                    "currentValue": round(current_value, 2),
-                    "candidateValue": round(candidate_value, 2),
+            trace_steps.append(TraceStep(
+                stepIndex=len(trace_steps),
+                phase="annealing_step",
+                currentNode=current_node,
+                frontier=neighbors,
+                visitedNodes=visited_path[:],
+                candidatePath=visited_path + [next_node],
+                costSoFar=round(travel, 2),
+                heuristic=round(next_h, 2),
+                decisionReason=f"Thu random neighbor {next_node} (h={next_h:.2f}). delta={delta:.2f}. T={T:.2f}, p={probability:.3f}. {'Chap nhan' if accept else 'Tu choi'}.",
+                debugData={
+                    "traceType": "local_search",
+                    "courseConcept": "Neu delta < 0, p=1. Nguoc lai p = exp(-delta/T).",
+                    "currentNode": current_node,
+                    "neighborNode": next_node,
+                    "currentH": round(current_h, 2),
+                    "neighborH": round(next_h, 2),
                     "deltaValue": round(delta, 2),
-                    "temperature": round(temperature, 2),
+                    "temperature": round(T, 2),
                     "acceptanceProbability": round(probability, 4),
                     "randomDraw": round(random_draw, 4),
                     "accepted": accept,
-                    "cooling": "T = 0.94 * T",
-                    "bestValue": round(best_value, 2),
-                    "swap": [i, j],
                     "result": "ACCEPT" if accept else "REJECT",
                 },
-                start_id,
-                goal_id,
-            )
+            ))
+
         if accept:
-            current = candidate
-            current_cost = candidate_cost
-            current_value = candidate_value
-        if current_value > best_value:
-            best = current[:]
-            best_cost = current_cost
-            best_value = current_value
-        temperature *= cooling_rate
-    result = evaluate_delivery_order(scenario, best, capacity_kg, debug, start_id, goal_id)
+            current_node = next_node
+            current_h = next_h
+            visited_path.append(current_node)
+            
+        T *= alpha
+
+    if debug and current_node == goal:
+        trace_steps.append(TraceStep(
+            stepIndex=len(trace_steps),
+            phase="goal_found",
+            currentNode=goal,
+            frontier=[],
+            visitedNodes=visited_path[:],
+            candidatePath=visited_path[:],
+            costSoFar=0,
+            heuristic=0,
+            decisionReason=f"Da den dich {goal} sau {iterations} buoc.",
+            debugData={
+                "traceType": "local_search",
+                "courseConcept": "Simulated Annealing da toi dich.",
+                "path": visited_path,
+                "iterations": iterations,
+                "result": "GOAL_REACHED",
+                "complete": True,
+            },
+        ))
+
+    result = evaluate_delivery_order(scenario, orders, capacity_kg, False, start_id, goal_id)
     result["iterations"] = iterations
-    result["traceSteps"] = trace_steps[:80] + result["traceSteps"]
+    result["hillClimbingPath"] = visited_path
+    result["reachedGoal"] = current_node == goal
+    result["path"] = visited_path
+    result["visited"] = list(dict.fromkeys(visited_path))
+    result["stops"] = visited_path
+    result["traceSteps"] = trace_steps
     return result
 
 

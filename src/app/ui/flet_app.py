@@ -2095,7 +2095,11 @@ class FletDashboard:
             run_spacing=8,
         )
         kv_rows = []
-        for key, value in list(metrics.items())[:12]:
+        for key, value in metrics.items():
+            if key in ("orderCount", "orderIds"):
+                continue
+            if len(kv_rows) >= 12:
+                break
             if isinstance(value, (dict, list)):
                 value_text = str(value)[:90] + ("..." if len(str(value)) > 90 else "")
             else:
@@ -2304,7 +2308,7 @@ class FletDashboard:
                 debug_row("heuristic", round(active_step.heuristic, 3) if active_step else "-"),
             ]
         if active_step and not is_csp_trace:
-            debug_rows.extend(debug_row(key, value) for key, value in list(active_step.debugData.items())[:10])
+            debug_rows.extend(debug_row(key, value) for key, value in list(active_step.debugData.items())[:15])
         debug_table = ft.Column(debug_rows, spacing=6)
         def debug_stat(label: str, value: str) -> ft.Control:
             return ft.Container(
