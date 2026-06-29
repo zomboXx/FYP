@@ -367,7 +367,7 @@ def simple_hill_climbing(
             stepIndex=0,
             phase="hill_climbing_init",
             currentNode=current_node,
-            frontier=_frontier_ids(current_node),
+            frontier=[],
             visitedNodes=visited_path[:],
             candidatePath=visited_path[:],
             costSoFar=0,
@@ -395,6 +395,7 @@ def simple_hill_climbing(
                 continue
             if neighbor_id in visited_path:
                 continue
+            
             neighbor_h = heuristic_minutes(scenario, neighbor_id, goal)
 
             if debug:
@@ -403,7 +404,7 @@ def simple_hill_climbing(
                     stepIndex=len(trace_steps),
                     phase="first_better_check",
                     currentNode=current_node,
-                    frontier=_frontier_ids(current_node),
+                    frontier=[neighbor_id],
                     visitedNodes=visited_path[:],
                     candidatePath=visited_path + [neighbor_id],
                     costSoFar=round(travel, 2),
@@ -785,7 +786,7 @@ def simulated_annealing(
             stepIndex=0,
             phase="annealing_init",
             currentNode=current_node,
-            frontier=_frontier_ids(current_node),
+            frontier=[],
             visitedNodes=visited_path[:],
             candidatePath=visited_path[:],
             costSoFar=0,
@@ -847,7 +848,7 @@ def simulated_annealing(
                 stepIndex=len(trace_steps),
                 phase="annealing_step",
                 currentNode=current_node,
-                frontier=neighbors,
+                frontier=[next_node],
                 visitedNodes=visited_path[:],
                 candidatePath=visited_path + [next_node],
                 costSoFar=round(travel, 2),

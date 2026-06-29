@@ -2300,7 +2300,7 @@ class FletDashboard:
                 debug_row("phase", active_step.phase if active_step else "-"),
                 debug_row("currentNode", active_step.currentNode if active_step else "-"),
                 debug_row("previousNode", active_step.previousNode if active_step else "-"),
-                debug_row("frontier", active_step.frontier if active_step else []),
+                debug_row("neighbor" if self.current_map_group() == "local_search" else "frontier", active_step.frontier if active_step else []),
                 debug_row("visitedNodes", active_step.visitedNodes if active_step else []),
                 debug_row("candidatePath", active_step.candidatePath if active_step else []),
                 debug_row("previewPath", active_step.previewPath if active_step else []),
