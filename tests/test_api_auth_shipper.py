@@ -425,7 +425,7 @@ def test_complex_and_csp_endpoints_return_structured_debug_traces():
     and_or_body = and_or_response.json()
     assert and_or_body["metrics"]["conditionalPlan"]["complete"] is True
     assert and_or_body["metrics"]["conditionalPlan"]["ifDisrupted"]
-    assert any(step["phase"] == "AND_ENV_OUTCOME" for step in and_or_body["traceSteps"])
+    assert any(step["phase"] == "AND_EVAL_OUTCOME" for step in and_or_body["traceSteps"])
 
     csp_response = client.post(
         "/api/csp/solve",
