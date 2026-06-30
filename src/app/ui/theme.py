@@ -56,8 +56,6 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "algorithms": [
             ("backtracking", "Backtracking"),
             ("forward_checking", "Forward Checking"),
-            ("ac3", "Arc Consistency (AC-3)"),
-            ("min_conflicts", "Min-Conflicts"),
         ],
     },
     "adversarial": {

@@ -246,6 +246,11 @@ def seed_demo_data(db: sqlite3.Connection) -> None:
         f"DELETE FROM shipper_groups WHERE name IN ({','.join('?' for _ in LEGACY_SHIPPER_GROUPS)})",
         list(LEGACY_SHIPPER_GROUPS),
     )
+    active_algorithm_names = tuple(ALGORITHM_GROUPS)
+    db.execute(
+        f"DELETE FROM algorithm_permissions WHERE algorithm_name NOT IN ({','.join('?' for _ in active_algorithm_names)})",
+        active_algorithm_names,
+    )
     for username, password, role, group in [
         ("admin", "admin123", "admin", None),
         ("shipper_a", "shipper123", "shipper", "on_demand"),

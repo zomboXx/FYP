@@ -1,0 +1,65 @@
+CONTENT REPORT
+
+Source status:
+- User-provided: required report outline screenshot, three template files, two preferred style previews, project workspace.
+- Local project sources: README.md, docs/report-outline.md, docs/demo-script.md, docs/algorithm-comparison.md, src/app/ui/assets.
+- Inferred: 20-minute defense needs slide content that leaves time for app manipulation and Q&A.
+- Needs confirmation: exact lecturer-facing wording can still be adjusted after visual QA.
+
+Core objective:
+- Present Find Your Path as an academic AI defense deck, not a software marketing deck.
+- Make the audience understand the route-planning problem, six algorithm families, demo workflow, and defensible tradeoffs.
+
+DESIGN SPEC
+
+Confirmed style direction:
+- Mix Direction 1 Urban Map Editorial and Direction 2 Technical Lab Dashboard.
+- Use generated image backgrounds for visual richness, with editable PowerPoint text, charts, tables, and objects on top.
+
+Typography:
+- Editorial headings: Playfair Display.
+- Technical/section headings: Oswald and Montserrat.
+- Body: Quicksand or Montserrat.
+- Trace/numeric labels: Roboto Mono.
+
+Palette:
+- Ink navy #081526
+- Leaf green #14BA5A
+- Cyan #00D8FF
+- Sand gold #D9C6A3
+- Paper #F6F2EA
+- Violet #8B5CF6
+- Coral #EF4444
+
+Layout grammar:
+- Hero and section slides use full-bleed generated imagery.
+- Light slides use paper-map background with dark editorial typography.
+- Technical slides use lab-map background with glowing route objects and translucent panels.
+- Decorative objects should support the story: pins, route lines, node rings, small icons, status chips, flow arrows.
+
+SLIDE BLUEPRINT
+
+01 Cover - title, thesis context, timebox.
+02 Defense route - agenda as route stations.
+03 Problem - why urban delivery is a graph and constraint problem.
+04 Formal model - state, initial, actions, goal, cost.
+05 System architecture - UI, API, services, algorithms, SQLite/OSM cache.
+06 Algorithm engine - six AI families and their role.
+07 A* trace - frontier, visited, g/h/f.
+08 Beyond shortest path - local, complex, CSP, adversarial situations.
+09 Demo choreography - what to show in app and why.
+10 Results view - comparison table/chart and how to read metrics.
+11 Discussion - strengths, limits, future work.
+12 Q&A - likely defense questions and closing sentence.
+
+SPEC LOCK
+
+Generation path:
+- Hybrid PPTX: generated background/illustration images plus editable PowerPoint objects.
+
+QA gates:
+- No title wrapping.
+- No dense text blocks.
+- No fake precise benchmark claims.
+- All generated images must have no text.
+- Final PPTX preview must be visually inspected before delivery.

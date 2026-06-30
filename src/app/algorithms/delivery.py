@@ -174,11 +174,13 @@ def _trace_local_state(
 ) -> None:
     start = start_id or scenario.depot_id
     goal = goal_id or start
+    stops = _order_route(scenario, state, start, goal)
+    route, _, _, _ = expand_route_with_astar(scenario, stops)
     _append_trace(
         trace_steps,
         phase,
         _state_node(scenario, state),
-        _order_route(scenario, state, start, goal),
+        route or stops,
         cost,
         reason,
         {
@@ -290,6 +292,17 @@ def evaluate_delivery_order(
     return_path, _, return_minutes, _ = expand_route_with_astar(scenario, [current_position, goal])
     if return_path:
         current_time += return_minutes
+        if debug and current_position != goal:
+            _append_trace(
+                trace_steps,
+                "route_to_goal",
+                goal,
+                return_path,
+                current_time,
+                f"Di tu diem giao cuoi {current_position} den dich ket thuc {goal}.",
+            )
+        current_position = goal
+        state_history.append(state_snapshot(scenario, current_position, current_time, carrying, pending, delivered).model_dump())
         service_path = path
     else:
         service_path = path
@@ -705,21 +718,40 @@ def simulated_annealing(
     best_cost = current_cost
     best_value = current_value
     temperature = 2.0
-    cooling_rate = 0.94
+    cooling_rate = 0.970
     iterations = 0
     trace_steps: list[TraceStep] = []
     while temperature > 0.01 and iterations < 250:
         iterations += 1
+        previous = current[:]
+        previous_cost = current_cost
+        previous_value = current_value
         candidate = current[:]
         i, j = rng.sample(range(len(candidate)), 2)
         candidate[i], candidate[j] = candidate[j], candidate[i]
         candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
         candidate_value = -candidate_cost
-        delta = candidate_value - current_value
+        delta = candidate_value - previous_value
         probability = 1.0 if delta > 0 else math.exp(delta / temperature)
         random_draw = 0.0 if delta > 0 else rng.random()
         accept = delta > 0 or random_draw < probability
+        if accept:
+            current = candidate
+            current_cost = candidate_cost
+            current_value = candidate_value
+        improved_best = current_value > best_value
+        if improved_best:
+            best = current[:]
+            best_cost = current_cost
+            best_value = current_value
         if debug:
+            acceptance_reason = (
+                "better_neighbor"
+                if delta > 0
+                else "random_draw_below_probability"
+                if accept
+                else "random_draw_above_probability"
+            )
             _trace_local_state(
                 trace_steps,
                 scenario,
@@ -731,31 +763,37 @@ def simulated_annealing(
                     f"T={temperature:.2f}, p={probability:.3f}; {'chap nhan' if accept else 'tu choi'}."
                 ),
                 {
-                    "courseConcept": "Simulated Annealing: delta > 0 thi nhan, delta <= 0 thi nhan voi p=e^(delta/T).",
-                    "currentState": _order_state(current),
-                    "currentValue": round(current_value, 2),
+                    "courseConcept": "Simulated Annealing / Luyen kim: doi khi chap nhan neighbor xau de thoat local optimum.",
+                    "rule": "Neu deltaValue > 0 thi nhan; neu deltaValue <= 0 thi nhan khi randomDraw < e^(deltaValue / temperature).",
+                    "previousState": _order_state(previous),
+                    "candidateState": _order_state(candidate),
+                    "nextState": _order_state(current),
+                    "previousCost": round(previous_cost, 2),
+                    "candidateCost": round(candidate_cost, 2),
+                    "nextCost": round(current_cost, 2),
+                    "deltaCost": round(candidate_cost - previous_cost, 2),
+                    "previousValue": round(previous_value, 2),
                     "candidateValue": round(candidate_value, 2),
+                    "nextValue": round(current_value, 2),
                     "deltaValue": round(delta, 2),
                     "temperature": round(temperature, 2),
+                    "coolingRate": cooling_rate,
+                    "acceptanceFormula": "p = e^(deltaValue / temperature)",
                     "acceptanceProbability": round(probability, 4),
                     "randomDraw": round(random_draw, 4),
                     "accepted": accept,
-                    "cooling": "T = 0.94 * T",
+                    "acceptanceReason": acceptance_reason,
+                    "betterThanPrevious": delta > 0,
+                    "improvedBest": improved_best,
+                    "bestCost": round(best_cost, 2),
                     "bestValue": round(best_value, 2),
+                    "cooling": f"temperature = temperature * {cooling_rate:.3f}",
                     "swap": [i, j],
                     "result": "ACCEPT" if accept else "REJECT",
                 },
                 start_id,
                 goal_id,
             )
-        if accept:
-            current = candidate
-            current_cost = candidate_cost
-            current_value = candidate_value
-        if current_value > best_value:
-            best = current[:]
-            best_cost = current_cost
-            best_value = current_value
         temperature *= cooling_rate
     result = evaluate_delivery_order(scenario, best, capacity_kg, debug, start_id, goal_id)
     result["iterations"] = iterations

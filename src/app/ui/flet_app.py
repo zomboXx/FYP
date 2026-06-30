@@ -592,6 +592,10 @@ class FletDashboard:
         if self.state.scenario and any(node.id == final_node for node in self.state.scenario.nodes):
             self.state.shipper_start_id = final_node
 
+    def reset_hydration_reminders(self) -> None:
+        self.state.hydration_completed_total = 0
+        self.state.hydration_completed_since_reminder = 0
+
     def shipper_view(self) -> ft.Control:
         profile = shipper_operation_profile(self.state.user) if self.state.user else "on_demand"
         category_options = (
@@ -621,7 +625,10 @@ class FletDashboard:
             def do_accept() -> None:
                 if not self.state.user or not self.state.selected_orders:
                     return
+                starting_new_trip = not self.state.accepted_orders
                 self.state.accepted_orders = accept_orders(list(self.state.selected_orders), self.state.user)
+                if starting_new_trip:
+                    self.reset_hydration_reminders()
                 self.state.selected_orders.clear()
                 self.load_orders()
                 self.render()
@@ -1447,6 +1454,62 @@ class FletDashboard:
             return MAP_ICONS["motorbike_taxi"]
         return MAP_ICONS["delivery_bike"]
 
+    def hydration_reminder_interval(self, category: str | None) -> int:
+        return 2 if (category or "").lower() in {"food", "drink", "beverage"} else 3
+
+    def should_show_hydration_reminder(self, category: str | None) -> bool:
+        return self.state.hydration_completed_since_reminder >= self.hydration_reminder_interval(category)
+
+    async def auto_close_dialog(self, dialog: ft.AlertDialog, seconds: float = 5.0) -> None:
+        await asyncio.sleep(seconds)
+        if dialog.open:
+            dialog.open = False
+            self.page.close(dialog)
+            self.page.update()
+
+    def show_driver_care_popup(self, *, final: bool = False) -> None:
+        title = "Hoàn tất chuyến giao" if final else "Nhắc bạn uống nước"
+        message = (
+            "Vất vả rồi. Nhớ ăn uống đủ bữa, nghỉ ngơi điều độ và giữ gìn sức khỏe nhé."
+            if final
+            else "Bạn vừa hoàn thành vài đơn liên tiếp. Uống vài ngụm nước rồi mình đi tiếp nhé."
+        )
+
+        def close_dialog(_: Any = None) -> None:
+            dialog.open = False
+            self.page.close(dialog)
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            modal=False,
+            title=text(title, 18, TEXT, ft.FontWeight.W_900),
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.LOCAL_DRINK, color=CYAN, size=28),
+                    text(message, 13, TEXT, ft.FontWeight.W_600, expand=True),
+                ],
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            ),
+            actions=[primary_button("Mình biết rồi!", close_dialog, ft.Icons.CHECK)],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.open(dialog)
+        self.page.run_task(self.auto_close_dialog, dialog, 5.0)
+
+    def handle_completed_order_reminders(self, completed_category: str | None) -> bool:
+        self.state.hydration_completed_total += 1
+        self.state.hydration_completed_since_reminder += 1
+        if not self.state.accepted_orders:
+            self.reset_hydration_reminders()
+            self.show_driver_care_popup(final=True)
+            return True
+        if self.should_show_hydration_reminder(completed_category):
+            self.state.hydration_completed_since_reminder = 0
+            self.show_driver_care_popup()
+            return True
+        return False
+
     def maybe_prompt_delivery_confirmation(self) -> bool:
         leg = self.delivery_leg_at_playback_index(self.state.shipper_playback_index)
         if not leg:
@@ -1484,6 +1547,7 @@ class FletDashboard:
                 self.load_orders()
                 self.notify(f"Đơn {order_id} đã giao thành công.")
                 self.render()
+                self.handle_completed_order_reminders(order.category)
 
             self.safe(do_complete)
 
@@ -1747,6 +1811,7 @@ class FletDashboard:
         full_path = result.path if result else []
         is_shipper_playback = self.state.workspace == "shipper" and len(full_path) > 1
         is_debug_trace = bool(active_step and result and result.traceSteps and not is_shipper_playback)
+        is_complex_debug = is_debug_trace and map_group == "complex"
         suppress_highlights = bool(active_step and active_step.debugData.get("suppressHighlights"))
         debug_route_complete = bool(
             is_debug_trace
@@ -1754,6 +1819,7 @@ class FletDashboard:
             and full_path
             and (
                 active_step.phase == "goal_found"
+                or active_step.phase == "GOAL_REACHED"
                 or active_step.debugData.get("complete") is True
                 or self.state.trace_index >= len(result.traceSteps) - 1
             )
@@ -1761,14 +1827,28 @@ class FletDashboard:
         playback_index = min(self.state.shipper_playback_index, len(full_path) - 1) if is_shipper_playback else 0
         if is_shipper_playback:
             display_path = full_path[: playback_index + 1]
+        elif is_complex_debug and not suppress_highlights:
+            if debug_route_complete:
+                display_path = full_path
+            elif active_step.currentNode and active_step.currentNode in full_path:
+                display_path = full_path[: full_path.index(active_step.currentNode) + 1]
+            else:
+                display_path = [active_step.currentNode] if active_step.currentNode else []
         elif is_debug_trace:
             display_path = full_path if debug_route_complete else []
         else:
             display_path = full_path
         path = set(display_path)
         if is_debug_trace:
-            visited = set() if suppress_highlights else set(active_step.visitedNodes)
-            frontier = set() if suppress_highlights else set(active_step.frontier)
+            if suppress_highlights:
+                visited = set()
+                frontier = set()
+            elif is_complex_debug:
+                visited = set(display_path[:-1])
+                frontier = set()
+            else:
+                visited = set(active_step.visitedNodes)
+                frontier = set(active_step.frontier)
             current = None if suppress_highlights else active_step.currentNode
         else:
             visited = set(result.visitedNodes if result else [])
@@ -1823,6 +1903,8 @@ class FletDashboard:
         preview_path = []
         if is_debug_trace and not suppress_highlights and not debug_route_complete:
             preview_path = active_step.previewPath or active_step.candidatePath
+            if is_complex_debug and current in preview_path:
+                preview_path = preview_path[preview_path.index(current) :]
         preview_lines = []
         for source, target in zip(preview_path, preview_path[1:]):
             preview_lines.append(
@@ -2248,6 +2330,7 @@ class FletDashboard:
             )
         active_step = self.active_step()
         is_csp_trace = bool(active_step and active_step.debugData.get("traceType") == "csp")
+        is_adversarial_trace = bool(active_step and active_step.debugData.get("traceType") == "adversarial_search")
         at_first = self.state.trace_index <= 0
         at_last = self.state.trace_index >= len(result.traceSteps) - 1
         if is_csp_trace and active_step:
@@ -2277,6 +2360,42 @@ class FletDashboard:
                 debug_row("tai trong", f"{csp_data.get('loadKg', 0)} / {csp_data.get('capacityKg', '-')} kg"),
                 debug_row("route tam", active_step.candidatePath),
             ]
+        elif is_adversarial_trace and active_step:
+            adversarial_data = active_step.debugData
+            route_index = adversarial_data.get("routeIndex")
+            disruption_index = adversarial_data.get("disruptionIndex")
+            debug_rows = [
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            text("ALPHA-BETA FIELD", 11, MUTED, ft.FontWeight.W_900, width=125),
+                            text("VALUE", 11, MUTED, ft.FontWeight.W_900, expand=True),
+                        ],
+                        spacing=10,
+                    ),
+                    bgcolor=INK,
+                    border=ft.border.all(1, LINE),
+                    border_radius=4,
+                    padding=8,
+                ),
+                debug_row("step", f"{self.state.trace_index + 1}/{len(result.traceSteps)}"),
+                debug_row("phase", active_step.phase),
+                debug_row("role", adversarial_data.get("role")),
+                debug_row("nodeType", adversarial_data.get("nodeType")),
+                debug_row("routeIndex", route_index + 1 if isinstance(route_index, int) else "-"),
+                debug_row("disruptionIndex", disruption_index + 1 if isinstance(disruption_index, int) else "-"),
+                debug_row("disruption", adversarial_data.get("disruption", "-")),
+                debug_row("alpha", adversarial_data.get("alpha")),
+                debug_row("beta", adversarial_data.get("beta")),
+                debug_row("utility", adversarial_data.get("utility", active_step.costSoFar)),
+                debug_row("minUtility", adversarial_data.get("minUtility", "-")),
+                debug_row("bestUtility", adversarial_data.get("bestUtility", "-")),
+                debug_row("condition", adversarial_data.get("condition", "-")),
+                debug_row("pruned", adversarial_data.get("pruned", 0)),
+                debug_row("candidatePath", active_step.candidatePath),
+                debug_row("frontier", active_step.frontier),
+                debug_row("result", adversarial_data.get("result")),
+            ]
         else:
             debug_rows = [
                 ft.Container(
@@ -2303,8 +2422,8 @@ class FletDashboard:
                 debug_row("costSoFar", round(active_step.costSoFar, 3) if active_step else "-"),
                 debug_row("heuristic", round(active_step.heuristic, 3) if active_step else "-"),
             ]
-        if active_step and not is_csp_trace:
-            debug_rows.extend(debug_row(key, value) for key, value in list(active_step.debugData.items())[:10])
+        if active_step and not is_csp_trace and not is_adversarial_trace:
+            debug_rows.extend(debug_row(key, value) for key, value in active_step.debugData.items())
         debug_table = ft.Column(debug_rows, spacing=6)
         def debug_stat(label: str, value: str) -> ft.Control:
             return ft.Container(

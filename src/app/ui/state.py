@@ -52,6 +52,8 @@ class FletState:
     accepted_orders: list[AvailableOrder] = field(default_factory=list)
     selected_orders: set[str] = field(default_factory=set)
     arrival_prompted_order_ids: set[str] = field(default_factory=set)
+    hydration_completed_total: int = 0
+    hydration_completed_since_reminder: int = 0
     category_filter: str = "all"
     urgency_filter: str = "all"
     error: str = ""

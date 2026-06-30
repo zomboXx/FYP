@@ -113,6 +113,7 @@ def _and_or_plan(
     complete = bool(open_path and disrupted_path)
     selected_path = open_path if open_path else disrupted_path
     edge_label = "-".join(uncertain_edge) if uncertain_edge else "none"
+    branch_node = uncertain_edge[0] if uncertain_edge else start
     traces: list[TraceStep] = []
 
     def add_trace(
@@ -175,14 +176,15 @@ def _and_or_plan(
     )
     add_trace(
         "AND_ENV_OUTCOME",
-        start,
+        branch_node,
         [f"{edge_label}=open"],
         open_path,
         believed_plan.total_minutes,
-        "AND node outcome 1: neu canh bat dinh van di duoc, primary route dua agent toi goal.",
+        f"AND node outcome 1 tai {branch_node}: neu canh {edge_label} van di duoc, primary route dua agent toi goal.",
         {
             "nodeType": "AND",
             "outcome": "open",
+            "observeAt": branch_node,
             "outcomePath": open_path,
             "outcomeSolved": bool(open_path),
             "result": "CHECK_OUTCOME",
@@ -190,14 +192,15 @@ def _and_or_plan(
     )
     add_trace(
         "AND_ENV_OUTCOME",
-        start,
+        branch_node,
         [f"{edge_label}=disrupted"],
         disrupted_path,
         disrupted_plan.total_minutes,
-        "AND node outcome 2: neu hidden event xay ra, contingency route phai van dua agent toi goal.",
+        f"AND node outcome 2 tai {branch_node}: neu den day moi thay {edge_label} bi chan, contingency route phai van toi goal.",
         {
             "nodeType": "AND",
             "outcome": "disrupted",
+            "observeAt": branch_node,
             "outcomePath": disrupted_path,
             "outcomeSolved": bool(disrupted_path),
             "result": "CHECK_OUTCOME",
@@ -205,7 +208,7 @@ def _and_or_plan(
     )
     add_trace(
         "RETURN_CONDITIONAL_PLAN" if complete else "FAIL_CONDITIONAL_PLAN",
-        start,
+        selected_path[-1] if complete and selected_path else start,
         [],
         selected_path,
         path_time(scenario, selected_path) if selected_path else BLOCKED_COST,
@@ -218,6 +221,7 @@ def _and_or_plan(
             "nodeType": "RETURN",
             "complete": complete,
             "completenessCondition": "Dam bao hoan thien khi state space huu han, transition model day du va co visited/cycle guard.",
+            "goalNode": goal,
             "result": "SOLUTION" if complete else "FAILURE",
         },
     )
@@ -233,6 +237,7 @@ def _and_or_plan(
         "observedEdges": [],
         "conditionalPlan": {
             "uncertainEdge": edge_label,
+            "observeAt": branch_node,
             "ifOpen": open_path,
             "ifDisrupted": disrupted_path,
             "complete": complete,
@@ -375,11 +380,11 @@ def _online_replan(
                 costSoFar=0,
                 heuristic=float(len(remaining_hidden)),
                 decisionReason=(
-                    "Khoi tao partial-observable state: agent co map believed, hidden event nam ngoai sensor range."
+                    "Khoi tao partial-observable state: agent tin vao map ban dau va chi biet su co khi den canh duong thuc te."
                 ),
                 debugData={
                     "traceType": "partial_observation",
-                    "courseConcept": "Partial Observation: predict -> observe percept -> filter belief state -> replan.",
+                    "courseConcept": "Partial Observation: predict -> attempt action -> observe blocked edge -> filter belief state -> replan.",
                     "hiddenEdges": sorted("-".join(key) for key in remaining_hidden),
                     "sensorRadius": sensor_radius,
                     "beliefStateSize": 1 + len(remaining_hidden),
@@ -392,20 +397,14 @@ def _online_replan(
 
     safety_limit = max(8, len(scenario.nodes) * 3)
     for _ in range(safety_limit):
-        revealed = _reveal_nearby_edges(believed, actual, current, sensor_radius, remaining_hidden)
-        if revealed:
-            observed_edges.extend(revealed)
-            remaining_hidden = {key for key in remaining_hidden if "-".join(key) not in revealed}
         plan = astar(believed, current, goal, debug=False)
         visited.extend(plan.visited_nodes)
         replans += 1
         if debug:
-            before_size = 1 + len(remaining_hidden) + len(revealed)
-            after_size = 1 + len(remaining_hidden)
             traces.append(
                 TraceStep(
                     stepIndex=len(traces),
-                    phase="OBSERVE_FILTER_REPLAN",
+                    phase="PLAN_FROM_CURRENT",
                     currentNode=current,
                     frontier=plan.visited_nodes,
                     visitedNodes=list(dict.fromkeys(visited)),
@@ -413,25 +412,19 @@ def _online_replan(
                     costSoFar=plan.total_minutes,
                     heuristic=float(len(remaining_hidden)),
                     decisionReason=(
-                        f"Nhan percept co {len(revealed)} thay doi; filter belief state roi re-plan tu {current}."
-                        if revealed
-                        else f"Khong co percept moi; belief state khong doi va tiep tuc policy tu {current}."
+                        f"Dang o {current}; chua gap canh bi chan tai vi tri nay nen lap plan theo believed map hien co."
                     ),
                     debugData={
                         "traceType": "partial_observation",
-                        "courseConcept": "Observation dung de loai cac world khong phu hop, sau do lap ke hoach lai.",
-                        "observation": revealed,
+                        "courseConcept": "Agent chi cap nhat belief khi action sap thuc thi gap ket qua trai voi believed map.",
+                        "observation": [],
                         "observedEdges": observed_edges[:],
                         "remainingHiddenEdges": sorted("-".join(key) for key in remaining_hidden),
-                        "beliefStateSizeBefore": before_size,
-                        "beliefStateSizeAfter": after_size,
-                        "filtering": (
-                            "Loai cac edge hidden da duoc sensor xac nhan."
-                            if revealed
-                            else "Khong loai world nao vi percept rong."
-                        ),
+                        "beliefStateSizeBefore": 1 + len(remaining_hidden),
+                        "beliefStateSizeAfter": 1 + len(remaining_hidden),
+                        "filtering": "Khong loai world nao vi chua truc tiep gap canh hidden.",
                         "beliefPath": plan.path,
-                        "result": "FILTER_AND_REPLAN",
+                        "result": "PLAN_WITH_CURRENT_BELIEF",
                     },
                 )
             )
@@ -444,10 +437,47 @@ def _online_replan(
         if not actual_edge or actual_edge.blocked:
             key = edge_key(current, next_node)
             believed_edge = find_edge(believed, *key)
+            observation = ["-".join(key)]
             if believed_edge and actual_edge:
                 believed_edge.blocked = actual_edge.blocked
                 believed_edge.traffic = actual_edge.traffic
-                remaining_hidden.discard(key)
+            if observation[0] not in observed_edges:
+                observed_edges.extend(observation)
+            before_size = 1 + len(remaining_hidden)
+            remaining_hidden.discard(key)
+            replan = astar(believed, current, goal, debug=False)
+            visited.extend(replan.visited_nodes)
+            replans += 1
+            if debug:
+                traces.append(
+                    TraceStep(
+                        stepIndex=len(traces),
+                        phase="OBSERVE_BLOCKED_EDGE_REPLAN",
+                        currentNode=current,
+                        frontier=replan.visited_nodes,
+                        visitedNodes=list(dict.fromkeys(visited)),
+                        candidatePath=replan.path,
+                        costSoFar=replan.total_minutes,
+                        heuristic=float(len(remaining_hidden)),
+                        decisionReason=(
+                            f"Tai {current}, agent dinh di {current}-{next_node} nhung moi phat hien canh nay bi chan; "
+                            f"bo canh khoi believed map va re-plan tu {current}."
+                        ),
+                        debugData={
+                            "traceType": "partial_observation",
+                            "courseConcept": "Observation xay ra khi thuc thi action, khong phai khi con o xa canh hidden.",
+                            "attemptedEdge": observation[0],
+                            "observation": observation,
+                            "observedEdges": observed_edges[:],
+                            "remainingHiddenEdges": sorted("-".join(item) for item in remaining_hidden),
+                            "beliefStateSizeBefore": before_size,
+                            "beliefStateSizeAfter": 1 + len(remaining_hidden),
+                            "filtering": "Loai world trong do canh vua gap van di duoc; believed map danh dau canh nay blocked.",
+                            "beliefPath": replan.path,
+                            "result": "FILTER_AND_REPLAN_FROM_CURRENT",
+                        },
+                    )
+                )
             continue
         current = next_node
         travelled.append(current)
@@ -456,6 +486,34 @@ def _online_replan(
 
     final_plan = astar(believed, current, goal, debug=False)
     completed_path = travelled + (final_plan.path[1:] if final_plan.path and final_plan.path[0] == current else [])
+    if debug and completed_path[-1:] == [goal]:
+        traces.append(
+            TraceStep(
+                stepIndex=len(traces),
+                phase="GOAL_REACHED",
+                currentNode=goal,
+                frontier=[],
+                visitedNodes=list(dict.fromkeys(visited + completed_path)),
+                candidatePath=completed_path,
+                costSoFar=round(path_time(actual, completed_path), 2),
+                heuristic=0,
+                decisionReason=(
+                    f"Da co route hoan chinh toi {goal}; sau khi quan sat va re-plan, hidden event khong con canh chua biet."
+                ),
+                debugData={
+                    "traceType": "partial_observation",
+                    "courseConcept": "Ket thuc online search khi current state trung voi goal state.",
+                    "observation": [],
+                    "observedEdges": observed_edges[:],
+                    "remainingHiddenEdges": sorted("-".join(key) for key in remaining_hidden),
+                    "beliefStateSizeBefore": 1 + len(remaining_hidden),
+                    "beliefStateSizeAfter": 1 + len(remaining_hidden),
+                    "filtering": "Khong can filter them vi agent da co duong di ve goal.",
+                    "beliefPath": completed_path,
+                    "result": "GOAL_REACHED",
+                },
+            )
+        )
     return {
         "path": completed_path if completed_path[-1:] == [goal] else travelled,
         "visited": list(dict.fromkeys(visited)),

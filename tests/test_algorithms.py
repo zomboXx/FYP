@@ -127,6 +127,14 @@ def test_partial_observation_reveals_hidden_edge_and_replans():
     assert result["observedEdges"]
     assert result["replans"] > 1
     assert any(step.debugData.get("observation") for step in result["traceSteps"])
+    observation_step = next(step for step in result["traceSteps"] if step.debugData.get("observation") == ["A1-A2"])
+    assert observation_step.phase == "OBSERVE_BLOCKED_EDGE_REPLAN"
+    assert observation_step.currentNode == "A1"
+    assert observation_step.debugData["attemptedEdge"] == "A1-A2"
+    assert ("A1", "A2") not in set(zip(result["path"], result["path"][1:]))
+    assert result["traceSteps"][-1].phase == "GOAL_REACHED"
+    assert result["traceSteps"][-1].currentNode == "D1"
+    assert result["traceSteps"][-1].candidatePath[-1] == "D1"
 
 
 def test_and_or_search_returns_complete_conditional_plan():
@@ -139,8 +147,15 @@ def test_and_or_search_returns_complete_conditional_plan():
     assert plan["ifOpen"]
     assert plan["ifDisrupted"]
     assert plan["ifOpen"] != plan["ifDisrupted"]
+    assert plan["observeAt"] == "A1"
     assert any(step.phase == "OR_CHOOSE_ACTION" for step in result["traceSteps"])
     assert any(step.phase == "AND_ENV_OUTCOME" for step in result["traceSteps"])
+    disrupted_step = next(step for step in result["traceSteps"] if step.debugData.get("outcome") == "disrupted")
+    assert disrupted_step.currentNode == "A1"
+    assert disrupted_step.debugData["observeAt"] == "A1"
+    assert result["traceSteps"][-1].phase == "RETURN_CONDITIONAL_PLAN"
+    assert result["traceSteps"][-1].currentNode == "D1"
+    assert result["traceSteps"][-1].debugData["complete"] is True
 
 
 def test_csp_solver_handles_valid_and_infeasible_order_sets():
