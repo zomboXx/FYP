@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -177,7 +179,7 @@ def test_shipper_plan_requires_accepted_orders():
         headers=auth(token),
     )
     assert planned.status_code == 400
-    assert "Chua co don hang" in planned.json()["detail"]
+    assert "Chưa có đơn hàng" in planned.json()["detail"]
 
 
 def test_accepting_orders_replenishes_available_pool_to_minimum_seven():
@@ -351,6 +353,51 @@ def test_shipper_confirms_delivery_after_accepting_order():
         headers=auth(token),
     )
     assert repeated.status_code == 404
+
+
+def test_shipper_stats_count_failed_customer_refusal_and_late_rate():
+    token = login("shipper_on_demand", "shipper123")
+    clear_shipper_assignments("shipper_on_demand")
+    order_ids = ["T_STATS_OK", "T_STATS_FAIL"]
+    with get_connection() as db:
+        db.execute(
+            f"DELETE FROM shipper_order_assignments WHERE order_id IN ({','.join('?' for _ in order_ids)})",
+            order_ids,
+        )
+        db.execute(f"DELETE FROM orders WHERE id IN ({','.join('?' for _ in order_ids)})", order_ids)
+        db.executemany(
+            """
+            INSERT INTO orders(id, category, urgency, pickup_node_id, dropoff_node_id, demand_kg, priority, due_min, status)
+            VALUES (?, 'food', 'urgent', 'A4', ?, 1.0, 5, 1, 'available')
+            """,
+            [(order_ids[0], "D1"), (order_ids[1], "D3")],
+        )
+    accepted = client.post("/api/shipper/orders/accept", json={"orderIds": order_ids}, headers=auth(token))
+    assert accepted.status_code == 200
+    with get_connection() as db:
+        db.execute(
+            f"UPDATE shipper_order_assignments SET accepted_at = ? WHERE order_id IN ({','.join('?' for _ in order_ids)})",
+            [int(time.time()) - 120, *order_ids],
+        )
+
+    completed = client.post("/api/shipper/orders/complete", json={"orderId": order_ids[0]}, headers=auth(token))
+    failed = client.post(
+        "/api/shipper/orders/fail",
+        json={"orderId": order_ids[1], "reason": "customer_not_received"},
+        headers=auth(token),
+    )
+    stats = client.get("/api/shipper/stats", headers=auth(token))
+
+    assert completed.status_code == 200
+    assert failed.status_code == 200
+    assert failed.json()["status"] == "failed"
+    assert stats.status_code == 200
+    body = stats.json()
+    assert body["completedOrdersToday"] >= 1
+    assert body["failedOrdersToday"] >= 1
+    assert body["successRate"] == 50.0
+    assert body["lateOrderRate"] == 100.0
+    assert body["distanceKmToday"] > 0
 
 
 def test_debug_trace_for_astar_contains_frontier_and_cost():

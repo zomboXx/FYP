@@ -92,8 +92,8 @@ SHIPPER_GROUP_POLICIES = {
     "warehouse": {"profile": "warehouse", "categories": ("parcel", "grocery")},
 }
 SHIPPER_GROUP_DESCRIPTIONS = {
-    "on_demand": "Shipper di don/cuoc le",
-    "warehouse": "Shipper lay hang tu warehouse W1",
+    "on_demand": "Shipper đi đơn/cuốc lẻ",
+    "warehouse": "Shipper lấy hàng từ warehouse W1",
 }
 
 
@@ -161,8 +161,19 @@ def init_db() -> None:
                 user_id INTEGER NOT NULL,
                 order_id TEXT NOT NULL,
                 accepted_at INTEGER NOT NULL,
+                delivery_started_at INTEGER,
                 delivered_at INTEGER,
+                failed_at INTEGER,
+                finished_at INTEGER,
+                outcome TEXT,
+                failure_reason TEXT,
                 PRIMARY KEY (user_id, order_id)
+            );
+            CREATE TABLE IF NOT EXISTS app_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                opened_at INTEGER NOT NULL,
+                closed_at INTEGER
             );
             CREATE TABLE IF NOT EXISTS maps (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,6 +192,23 @@ def init_db() -> None:
         }
         if "delivered_at" not in assignment_columns:
             db.execute("ALTER TABLE shipper_order_assignments ADD COLUMN delivered_at INTEGER")
+        if "delivery_started_at" not in assignment_columns:
+            db.execute("ALTER TABLE shipper_order_assignments ADD COLUMN delivery_started_at INTEGER")
+        if "failed_at" not in assignment_columns:
+            db.execute("ALTER TABLE shipper_order_assignments ADD COLUMN failed_at INTEGER")
+        if "finished_at" not in assignment_columns:
+            db.execute("ALTER TABLE shipper_order_assignments ADD COLUMN finished_at INTEGER")
+        if "outcome" not in assignment_columns:
+            db.execute("ALTER TABLE shipper_order_assignments ADD COLUMN outcome TEXT")
+        if "failure_reason" not in assignment_columns:
+            db.execute("ALTER TABLE shipper_order_assignments ADD COLUMN failure_reason TEXT")
+        db.execute(
+            """
+            UPDATE shipper_order_assignments
+            SET finished_at = delivered_at, outcome = 'delivered'
+            WHERE delivered_at IS NOT NULL AND finished_at IS NULL
+            """
+        )
         seed_demo_data(db)
         seed_demo_maps(db)
         db.execute(
@@ -189,7 +217,7 @@ def init_db() -> None:
             SET status = 'accepted'
             WHERE status = 'available'
             AND id IN (
-                SELECT order_id FROM shipper_order_assignments WHERE delivered_at IS NULL
+                SELECT order_id FROM shipper_order_assignments WHERE finished_at IS NULL
             )
             """
         )
@@ -201,10 +229,10 @@ def seed_demo_maps(db: sqlite3.Connection) -> None:
     groups = [
         ("uninformed", "Uninformed baseline map", "Graph demo cho BFS va DFS."),
         ("informed", "Informed heuristic map", "Graph demo cho A* va Greedy Best-First."),
-        ("local_search", "Local delivery map", "Graph demo cho nhom toi uu lo trinh giao hang."),
-        ("complex", "Partial observability map", "Graph demo cho su kien an va re-plan."),
-        ("csp", "CSP constraint map", "Graph demo cho rang buoc tai trong va lich giao."),
-        ("adversarial", "Adversarial disruption map", "Graph demo cho route robust truoc canh tranh."),
+        ("local_search", "Local delivery map", "Graph demo cho nhóm tối ưu lộ trình giao hàng."),
+        ("complex", "Partial observability map", "Graph demo cho sự kiện ẩn và re-plan."),
+        ("csp", "CSP constraint map", "Graph demo cho ràng buộc tải trọng và lịch giao."),
+        ("adversarial", "Adversarial disruption map", "Graph demo cho route robust trước cạnh tranh."),
         ("shipper", "Shipper dispatch map", "Graph van hanh live cho shipper."),
     ]
     for group, name, description in groups:
@@ -450,7 +478,7 @@ def _accepted_order_rows(user: UserPublic) -> list[sqlite3.Row]:
             """
             SELECT o.* FROM orders o
             JOIN shipper_order_assignments a ON a.order_id = o.id
-            WHERE a.user_id = ? AND a.delivered_at IS NULL AND o.status = 'accepted'
+            WHERE a.user_id = ? AND a.finished_at IS NULL AND o.status = 'accepted'
             ORDER BY a.accepted_at, o.priority DESC
             """,
             (user.id,),
@@ -518,14 +546,14 @@ def decode_token(token: str) -> dict[str, Any]:
     try:
         header_text, payload_text, signature_text = token.split(".")
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token khong hop le") from exc
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ") from exc
     signing_input = f"{header_text}.{payload_text}"
     expected = _b64url(hmac.new(SECRET.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest())
     if not hmac.compare_digest(expected, signature_text):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Chu ky token khong hop le")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Chữ ký token không hợp lệ")
     payload = json.loads(_b64url_decode(payload_text))
     if int(payload.get("exp", 0)) < int(time.time()):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token da het han")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token đã hết hạn")
     return payload
 
 
@@ -542,24 +570,59 @@ def authenticate(username: str, password: str) -> UserPublic:
     with get_connection() as db:
         row = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
     if row is None or not verify_password(password, row["password_hash"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sai ten dang nhap hoac mat khau")
-    return row_to_user(row)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sai tên đăng nhập hoặc mật khẩu")
+    user = row_to_user(row)
+    record_app_open(user.id)
+    return user
+
+
+def record_app_open(user_id: int) -> None:
+    with get_connection() as db:
+        active = db.execute(
+            """
+            SELECT 1 FROM app_sessions
+            WHERE user_id = ? AND closed_at IS NULL
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        if active:
+            return
+        db.execute(
+            "INSERT INTO app_sessions(user_id, opened_at, closed_at) VALUES (?, ?, NULL)",
+            (user_id, int(time.time())),
+        )
+
+
+def record_app_close(user_id: int) -> None:
+    with get_connection() as db:
+        session = db.execute(
+            """
+            SELECT id FROM app_sessions
+            WHERE user_id = ? AND closed_at IS NULL
+            ORDER BY opened_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        if session:
+            db.execute("UPDATE app_sessions SET closed_at = ? WHERE id = ?", (int(time.time()), session["id"]))
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> UserPublic:
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Can dang nhap")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Cần đăng nhập")
     payload = decode_token(authorization.split(" ", 1)[1])
     with get_connection() as db:
         row = db.execute("SELECT * FROM users WHERE id = ?", (int(payload["sub"]),)).fetchone()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Nguoi dung khong ton tai")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Người dùng không tồn tại")
     return row_to_user(row)
 
 
 def require_admin(user: UserPublic = Depends(get_current_user)) -> UserPublic:
     if user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chi admin duoc phep thuc hien thao tac nay")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ admin được phép thực hiện thao tác này")
     return user
 
 
@@ -568,7 +631,7 @@ def assert_algorithm_allowed(user: UserPublic, algorithm_name: str) -> None:
         return
     shipper_group = normalize_shipper_group(user.shipperGroup)
     if shipper_group is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shipper chua duoc gan nhom")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shipper chưa được gán nhóm")
     with get_connection() as db:
         row = db.execute(
             "SELECT enabled FROM algorithm_permissions WHERE shipper_group = ? AND algorithm_name = ?",
@@ -577,7 +640,7 @@ def assert_algorithm_allowed(user: UserPublic, algorithm_name: str) -> None:
     if row is None or not bool(row["enabled"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Nhom {shipper_group} chua duoc bat thuat toan {algorithm_name}",
+            detail=f"Nhóm {shipper_group} chưa được bật thuật toán {algorithm_name}",
         )
 
 
@@ -633,7 +696,7 @@ def update_user_group(user_id: int, shipper_group: str) -> UserPublic:
         db.execute("UPDATE users SET shipper_group = ? WHERE id = ?", (shipper_group, user_id))
         row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Khong tim thay user")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy user")
     return row_to_user(row)
 
 
@@ -647,7 +710,7 @@ def register_user(username: str, password: str, role: str, shipper_group: str | 
             )
             row = db.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username da ton tai") from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username đã tồn tại") from exc
     return row_to_user(row)
 
 
@@ -693,7 +756,7 @@ def list_available_orders(category: str | None, urgency: str | None, user: UserP
 def accept_orders(order_ids: list[str], user: UserPublic) -> list[AvailableOrder]:
     allowed_categories = allowed_order_categories(user)
     if not allowed_categories:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shipper chua co nhom don hang hop le")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Shipper chưa có nhóm đơn hàng hợp lệ")
     now = int(time.time())
     accepted_count = 0
     with get_connection() as db:
@@ -701,7 +764,7 @@ def accept_orders(order_ids: list[str], user: UserPublic) -> list[AvailableOrder
         if forbidden:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Don hang khong thuoc nhom van hanh cua shipper: " + ", ".join(forbidden),
+                detail="Đơn hàng không thuộc nhóm vận hành của shipper: " + ", ".join(forbidden),
             )
         placeholders = ",".join("?" for _ in order_ids)
         rows = (
@@ -718,12 +781,12 @@ def accept_orders(order_ids: list[str], user: UserPublic) -> list[AvailableOrder
         if missing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Khong tim thay don hang: " + ", ".join(missing),
+                detail="Không tìm thấy đơn hàng: " + ", ".join(missing),
             )
         if unavailable:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Don hang da duoc nhan hoac da giao: " + ", ".join(unavailable),
+                detail="Đơn hàng đã được nhận hoặc đã giao: " + ", ".join(unavailable),
             )
         for order_id in order_ids:
             updated = db.execute(
@@ -733,14 +796,21 @@ def accept_orders(order_ids: list[str], user: UserPublic) -> list[AvailableOrder
             if updated.rowcount != 1:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Don hang {order_id} vua duoc shipper khac nhan",
+                    detail=f"Đơn hàng {order_id} vừa được shipper khác nhận",
                 )
             db.execute(
                 """
                 INSERT INTO shipper_order_assignments(user_id, order_id, accepted_at, delivered_at)
                 VALUES (?, ?, ?, NULL)
                 ON CONFLICT(user_id, order_id)
-                DO UPDATE SET accepted_at = excluded.accepted_at, delivered_at = NULL
+                DO UPDATE SET
+                    accepted_at = excluded.accepted_at,
+                    delivery_started_at = NULL,
+                    delivered_at = NULL,
+                    failed_at = NULL,
+                    finished_at = NULL,
+                    outcome = NULL,
+                    failure_reason = NULL
                 """,
                 (user.id, order_id, now),
             )
@@ -757,7 +827,7 @@ def accepted_order_ids(user: UserPublic) -> list[str]:
         rows = db.execute(
             """
             SELECT order_id FROM shipper_order_assignments
-            WHERE user_id = ? AND delivered_at IS NULL
+            WHERE user_id = ? AND finished_at IS NULL
             ORDER BY accepted_at
             """,
             (user.id,),
@@ -769,6 +839,23 @@ def list_accepted_orders(user: UserPublic) -> list[AvailableOrder]:
     return [_row_to_available_order(row) for row in _allowed_accepted_rows(user)]
 
 
+def mark_delivery_started(user_id: int, order_ids: list[str]) -> None:
+    if not order_ids:
+        return
+    placeholders = ",".join("?" for _ in order_ids)
+    with get_connection() as db:
+        db.execute(
+            f"""
+            UPDATE shipper_order_assignments
+            SET delivery_started_at = COALESCE(delivery_started_at, ?)
+            WHERE user_id = ?
+              AND finished_at IS NULL
+              AND order_id IN ({placeholders})
+            """,
+            [int(time.time()), user_id, *order_ids],
+        )
+
+
 def complete_order(order_id: str, user: UserPublic) -> AvailableOrder:
     now = int(time.time())
     with get_connection() as db:
@@ -777,26 +864,57 @@ def complete_order(order_id: str, user: UserPublic) -> AvailableOrder:
             SELECT o.* FROM orders o
             JOIN shipper_order_assignments a ON a.order_id = o.id
             WHERE a.user_id = ? AND a.order_id = ?
-              AND a.delivered_at IS NULL AND o.status = 'accepted'
+              AND a.finished_at IS NULL AND o.status = 'accepted'
             """,
             (user.id, order_id),
         ).fetchone()
         if row is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Don hang khong con trong danh sach dang giao",
+                detail="Đơn hàng không còn trong danh sách đang giao",
             )
         db.execute(
             """
             UPDATE shipper_order_assignments
-            SET delivered_at = ?
-            WHERE user_id = ? AND order_id = ? AND delivered_at IS NULL
+            SET delivered_at = ?, finished_at = ?, outcome = 'delivered', failed_at = NULL, failure_reason = NULL
+            WHERE user_id = ? AND order_id = ? AND finished_at IS NULL
             """,
-            (now, user.id, order_id),
+            (now, now, user.id, order_id),
         )
         db.execute("UPDATE orders SET status = 'delivered' WHERE id = ?", (order_id,))
         delivered = db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     return _row_to_available_order(delivered)
+
+
+def fail_order(order_id: str, user: UserPublic, reason: str = "customer_not_received") -> AvailableOrder:
+    now = int(time.time())
+    normalized_reason = reason.strip() or "customer_not_received"
+    with get_connection() as db:
+        row = db.execute(
+            """
+            SELECT o.* FROM orders o
+            JOIN shipper_order_assignments a ON a.order_id = o.id
+            WHERE a.user_id = ? AND a.order_id = ?
+              AND a.finished_at IS NULL AND o.status = 'accepted'
+            """,
+            (user.id, order_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Đơn hàng không còn trong danh sách đang giao",
+            )
+        db.execute(
+            """
+            UPDATE shipper_order_assignments
+            SET failed_at = ?, finished_at = ?, outcome = 'failed', failure_reason = ?
+            WHERE user_id = ? AND order_id = ? AND finished_at IS NULL
+            """,
+            (now, now, normalized_reason, user.id, order_id),
+        )
+        db.execute("UPDATE orders SET status = 'failed' WHERE id = ?", (order_id,))
+        failed = db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+    return _row_to_available_order(failed)
 
 
 def accepted_order_models(user: UserPublic) -> list[Order]:

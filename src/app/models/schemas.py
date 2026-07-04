@@ -249,6 +249,38 @@ class CompleteOrderRequest(BaseModel):
     orderId: str
 
 
+class FailOrderRequest(BaseModel):
+    orderId: str
+    reason: str = "customer_not_received"
+
+
+class FatigueWarning(BaseModel):
+    level: Literal["ok", "info", "warning", "danger"]
+    message: str
+
+
+class ShipperStats(BaseModel):
+    appOpenSecondsToday: int
+    appOpenSecondsMonth: int
+    deliverySecondsToday: int
+    deliverySecondsMonth: int
+    estimatedDeliverySecondsToday: int
+    estimatedDeliverySecondsMonth: int
+    completedOrdersToday: int
+    completedOrdersMonth: int
+    failedOrdersToday: int
+    failedOrdersMonth: int
+    finishedOrdersToday: int
+    finishedOrdersMonth: int
+    lateOrdersToday: int
+    lateOrdersMonth: int
+    distanceKmToday: float
+    distanceKmMonth: float
+    successRate: float
+    lateOrderRate: float
+    fatigueWarning: FatigueWarning
+
+
 class ShipperPlanRequest(BaseModel):
     algorithm: Literal[
         "simple_hill_climbing",

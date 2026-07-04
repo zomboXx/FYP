@@ -29,12 +29,15 @@ from app.services.auth_service import (
     accept_orders,
     authenticate,
     complete_order,
+    fail_order,
     list_accepted_orders,
     list_available_orders,
     list_permissions,
+    record_app_close,
     shipper_operation_profile,
     update_permission,
 )
+from app.services.shipper_stats_service import shipper_stats
 from app.services.map_service import create_map, delete_map, default_map_for_group, get_map, list_maps, update_map
 from app.services.route_service import (
     optimize_delivery,
@@ -273,8 +276,8 @@ class FletDashboard:
         demo_cards = ft.Column(
             [
                 account_card(ft.Icons.ADMIN_PANEL_SETTINGS, "Admin", "Defense Lab + Admin Panel", YELLOW, "admin", "admin123"),
-                account_card(ft.Icons.TWO_WHEELER, "Shipper cuoc le", "Don rieng, co the gom cung diem nhan", GREEN, "shipper_on_demand", "shipper123"),
-                account_card(ft.Icons.WAREHOUSE, "Shipper warehouse", "Lay hang tai W1 roi toi uu tuyen giao", CYAN, "shipper_warehouse", "shipper123"),
+                account_card(ft.Icons.TWO_WHEELER, "Shipper cuốc lẻ", "Đơn riêng, có thể gom cùng điểm nhận", GREEN, "shipper_on_demand", "shipper123"),
+                account_card(ft.Icons.WAREHOUSE, "Shipper warehouse", "Lấy hàng tại W1 rồi tối ưu tuyến giao", CYAN, "shipper_warehouse", "shipper123"),
             ],
             spacing=10,
         )
@@ -299,7 +302,7 @@ class FletDashboard:
                         spacing=0,
                     ),
                     text(
-                        "Mo phong giao hang do thi Viet Nam.\nSo sanh BFS, DFS, A*, Hill Climbing\nva hon the nua - truc tiep tren graph.",
+                        "Mô phỏng giao hàng đô thị Việt Nam.\nSo sánh BFS, DFS, A*, Hill Climbing\nvà hơn thế nữa - trực tiếp trên graph.",
                         18,
                         MUTED,
                         font_family="Consolas",
@@ -374,7 +377,7 @@ class FletDashboard:
 
     def shell_view(self) -> ft.Control:
         compact = bool(self.page.width and self.page.width < 700)
-        keys = ["shipper", "defense", "map"]
+        keys = ["shipper", "stats", "defense", "map"]
         if self.state.user and self.state.user.role == "admin":
             keys.append("admin")
 
@@ -401,6 +404,8 @@ class FletDashboard:
                 self.activate_map_for_group("shipper")
                 self.configure_shipper_workspace()
                 self.load_orders()
+            if self.state.workspace == "stats" and self.state.user:
+                self.state.shipper_stats = shipper_stats(self.state.user)
             self.render()
 
         def nav_item(workspace: str, icon: str, label: str) -> ft.Control:
@@ -425,6 +430,7 @@ class FletDashboard:
 
         nav_controls = [
             nav_item("shipper", ft.Icons.LOCAL_SHIPPING, "SHIP"),
+            nav_item("stats", ft.Icons.INSIGHTS, "STATS"),
             nav_item("defense", ft.Icons.SCIENCE, "LAB"),
             nav_item("map", ft.Icons.MAP, "MAP"),
         ]
@@ -484,6 +490,7 @@ class FletDashboard:
         user = self.state.user
         title_parts = {
             "shipper": ("SHIPPER", "DISPATCH"),
+            "stats": ("SHIPPER", "STATS"),
             "defense": ("ALGORITHM", "SIMULATOR"),
             "admin": ("ADMIN", "PERMISSIONS"),
         }[self.state.workspace]
@@ -499,7 +506,15 @@ class FletDashboard:
             [
                 ft.Row(
                     [
-                        ft.Icon(ft.Icons.SCIENCE if self.state.workspace == "defense" else ft.Icons.ROUTE, color=GREEN, size=18),
+                        ft.Icon(
+                            ft.Icons.SCIENCE
+                            if self.state.workspace == "defense"
+                            else ft.Icons.INSIGHTS
+                            if self.state.workspace == "stats"
+                            else ft.Icons.ROUTE,
+                            color=GREEN,
+                            size=18,
+                        ),
                         text(title, 12, GREEN, ft.FontWeight.W_900),
                     ],
                     spacing=8,
@@ -527,6 +542,7 @@ class FletDashboard:
             )
         body = {
             "shipper": self.shipper_view,
+            "stats": self.stats_view,
             "defense": self.defense_view,
             "admin": self.admin_view,
         }[self.state.workspace]()
@@ -535,6 +551,8 @@ class FletDashboard:
     def logout(self) -> None:
         self.stop_auto_run()
         self.stop_shipper_playback()
+        if self.state.user:
+            record_app_close(self.state.user.id)
         self.state = FletState(scenario=self.state.scenario)
         self.load_map_catalog()
         self.activate_map_for_group(self.state.group)
@@ -550,6 +568,7 @@ class FletDashboard:
         urgency = None if self.state.urgency_filter == "all" else self.state.urgency_filter
         self.state.orders = list_available_orders(category, urgency, self.state.user)
         self.state.accepted_orders = list_accepted_orders(self.state.user)
+        self.state.shipper_stats = shipper_stats(self.state.user)
 
     def configure_shipper_workspace(self) -> None:
         if not self.state.user or not self.state.scenario:
@@ -595,6 +614,87 @@ class FletDashboard:
     def reset_hydration_reminders(self) -> None:
         self.state.hydration_completed_total = 0
         self.state.hydration_completed_since_reminder = 0
+
+    def duration_label(self, seconds: int) -> str:
+        minutes = max(0, int(seconds)) // 60
+        hours, remaining_minutes = divmod(minutes, 60)
+        return f"{hours}h {remaining_minutes}m" if hours else f"{remaining_minutes}m"
+
+    def stats_card(self, label: str, value: str, icon: str, tone: str = "green", col: dict[str, int] | None = None) -> ft.Control:
+        color = GREEN if tone == "green" else YELLOW if tone == "yellow" else CYAN if tone == "cyan" else RED
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(icon, color=color, size=19),
+                            text(label.upper(), 11, MUTED, ft.FontWeight.W_800),
+                        ],
+                        spacing=8,
+                    ),
+                    text(value, 26, color, ft.FontWeight.W_900),
+                ],
+                spacing=12,
+            ),
+            bgcolor=PANEL_2,
+            border=ft.border.all(1, LINE),
+            border_radius=4,
+            padding=16,
+            col=col or {"xs": 12, "md": 6, "xl": 3},
+        )
+
+    def stats_view(self) -> ft.Control:
+        if not self.state.user:
+            return ft.Container(height=0)
+        self.state.shipper_stats = shipper_stats(self.state.user)
+        stats = self.state.shipper_stats
+        warning_color = GREEN if stats.fatigueWarning.level == "ok" else CYAN if stats.fatigueWarning.level == "info" else YELLOW
+        return ft.Column(
+            [
+                ft.ResponsiveRow(
+                    [
+                        self.stats_card("Mở app hôm nay", self.duration_label(stats.appOpenSecondsToday), ft.Icons.SCHEDULE, "cyan"),
+                        self.stats_card("Giao hàng thực tế", self.duration_label(stats.deliverySecondsToday), ft.Icons.TWO_WHEELER, "green"),
+                        self.stats_card("Ước tính tuyến", self.duration_label(stats.estimatedDeliverySecondsToday), ft.Icons.ROUTE, "cyan"),
+                        self.stats_card("Quãng đường", f"{stats.distanceKmToday} km", ft.Icons.SOCIAL_DISTANCE, "green"),
+                    ],
+                    spacing=12,
+                    run_spacing=12,
+                ),
+                ft.ResponsiveRow(
+                    [
+                        self.stats_card("Hoàn thành hôm nay", str(stats.completedOrdersToday), ft.Icons.CHECK_CIRCLE, "green"),
+                        self.stats_card("Hoàn thành tháng", str(stats.completedOrdersMonth), ft.Icons.CALENDAR_MONTH, "green"),
+                        self.stats_card("Không thành công", str(stats.failedOrdersToday), ft.Icons.CANCEL, "yellow"),
+                        self.stats_card("Tỉ lệ thành công", f"{stats.successRate}%", ft.Icons.TRENDING_UP, "green" if stats.successRate >= 80 else "yellow"),
+                        self.stats_card("Trễ đơn", f"{stats.lateOrderRate}%", ft.Icons.TIMER_OFF, "yellow" if stats.lateOrderRate else "green"),
+                        self.stats_card("Mở app tháng", self.duration_label(stats.appOpenSecondsMonth), ft.Icons.DATE_RANGE, "cyan"),
+                        self.stats_card("Giao hàng tháng", self.duration_label(stats.deliverySecondsMonth), ft.Icons.DELIVERY_DINING, "green"),
+                        self.stats_card("Km tháng", f"{stats.distanceKmMonth} km", ft.Icons.MAP, "green"),
+                    ],
+                    spacing=12,
+                    run_spacing=12,
+                ),
+                panel(
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.HEALTH_AND_SAFETY, color=warning_color, size=24),
+                            ft.Column(
+                                [
+                                    ft.Row([text("NHẮC NHỞ SỨC KHỎE", 13, TEXT, ft.FontWeight.W_900), pill(stats.fatigueWarning.level.upper(), "green" if stats.fatigueWarning.level == "ok" else "yellow")], spacing=8),
+                                    text(stats.fatigueWarning.message, 13, MUTED),
+                                ],
+                                spacing=4,
+                                expand=True,
+                            ),
+                        ],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
+                ),
+            ],
+            spacing=12,
+        )
 
     def shipper_view(self) -> ft.Control:
         profile = shipper_operation_profile(self.state.user) if self.state.user else "on_demand"
@@ -741,7 +841,7 @@ class FletDashboard:
             ft.Column(
                 [
                     ft.Row([text("ĐƠN HÀNG", 22, TEXT, ft.FontWeight.W_900), pill(f"{len(self.state.orders)} đơn", "green")]),
-                    pill("CUOC LE: HIEN TAI -> NHAN -> GIAO" if profile == "on_demand" else "WAREHOUSE: W1 -> CAC DIEM GIAO", "cyan"),
+                    pill("CUỐC LẺ: HIỆN TẠI -> NHẬN -> GIAO" if profile == "on_demand" else "WAREHOUSE: W1 -> CÁC ĐIỂM GIAO", "cyan"),
                     dropdown(
                         "Bản đồ",
                         str(self.state.active_map_id or ""),
@@ -861,7 +961,7 @@ class FletDashboard:
 
         def set_algorithm(algorithm: str) -> None:
             if not self.algorithm_allowed_for_user(algorithm):
-                self.notify(f"Thuat toan {algorithm} dang bi tat cho nhom cua ban.", True)
+                self.notify(f"Thuật toán {algorithm} đang bị tắt cho nhóm của bạn.", True)
                 return
             self.stop_auto_run()
             self.state.algorithm = algorithm
@@ -1197,7 +1297,7 @@ class FletDashboard:
                                 save_map,
                                 ft.Icons.SAVE,
                             ),
-                            outline_button("Nhap moi", lambda _: reset_map_editor(), ft.Icons.ADD),
+                            outline_button("Nhập mới", lambda _: reset_map_editor(), ft.Icons.ADD),
                         ],
                         wrap=True,
                     ),
@@ -1283,7 +1383,7 @@ class FletDashboard:
             )
         return ft.Column(
             [
-                text("Moi thuat toan CSP dung cung bo don nay.", 10, MUTED),
+                text("Mỗi thuật toán CSP dùng cùng bộ đơn này.", 10, MUTED),
                 *rows,
             ],
             spacing=5,
@@ -1551,6 +1651,25 @@ class FletDashboard:
 
             self.safe(do_complete)
 
+        def report_failure(_: Any = None) -> None:
+            def do_fail() -> None:
+                if not self.state.user:
+                    return
+                fail_order(order_id, self.state.user, "customer_not_received")
+                self.sync_shipper_position_to_route_end()
+                close_dialog()
+                self.state.accepted_orders = [item for item in self.state.accepted_orders if item.id != order_id]
+                self.state.orders = [item for item in self.state.orders if item.id != order_id]
+                self.state.selected_orders.discard(order_id)
+                self.state.arrival_prompted_order_ids.discard(order_id)
+                self.load_orders()
+                if not self.state.accepted_orders:
+                    self.reset_hydration_reminders()
+                self.notify(f"Đơn {order_id} giao không thành công.")
+                self.render()
+
+            self.safe(do_fail)
+
         dialog = ft.AlertDialog(
             modal=True,
             title=text(f"Đã đến điểm giao {order.dropoffNodeId}", 18, TEXT, ft.FontWeight.W_900),
@@ -1578,7 +1697,8 @@ class FletDashboard:
                 spacing=8,
             ),
             actions=[
-                outline_button("Khách chưa nhận", postpone),
+                outline_button("Để sau", postpone),
+                outline_button("Khách không nhận", report_failure),
                 primary_button("Xác nhận giao thành công", confirm, ft.Icons.CHECK_CIRCLE),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1704,7 +1824,7 @@ class FletDashboard:
         if not self.algorithm_allowed_for_user(self.state.algorithm):
             raise HTTPException(
                 status_code=403,
-                detail=f"Thuat toan {self.state.algorithm} dang bi tat cho nhom cua ban.",
+                detail=f"Thuật toán {self.state.algorithm} đang bị tắt cho nhóm của bạn.",
             )
         group = ALGORITHM_GROUPS[self.state.group]
         mode = group["mode"]
@@ -1982,12 +2102,12 @@ class FletDashboard:
             )
             category = order.category if order else ""
             if kind == "approach_pickup":
-                image_marker(pickup_node_id or active_delivery_leg.get("to"), self.pickup_icon_src(category), "Diem nhan hang", 44)
+                image_marker(pickup_node_id or active_delivery_leg.get("to"), self.pickup_icon_src(category), "Điểm nhận hàng", 44)
             elif kind == "serve_order":
-                image_marker(pickup_node_id or active_delivery_leg.get("from"), self.pickup_icon_src(category), "Diem nhan hang", 44)
-                image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Diem giao hang", 44)
+                image_marker(pickup_node_id or active_delivery_leg.get("from"), self.pickup_icon_src(category), "Điểm nhận hàng", 44)
+                image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Điểm giao hàng", 44)
             elif kind in {"warehouse_delivery", "transport_to_warehouse"}:
-                image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Diem giao hang", 44)
+                image_marker(dropoff_node_id or active_delivery_leg.get("to"), MAP_ICONS["dropoff_pin"], "Điểm giao hàng", 44)
             image_marker(
                 current or str(active_delivery_leg.get("from") or ""),
                 self.vehicle_icon_src(active_delivery_leg, category),
@@ -2250,7 +2370,7 @@ class FletDashboard:
                         ft.Row([text("DEBUG TIMELINE", 18, TEXT, ft.FontWeight.W_900), pill("IDLE")]),
                         ft.Container(
                             content=ft.Column(
-                                [ft.Icon(ft.Icons.PSYCHOLOGY, color=GREEN, size=30), text("Chay mot thuat toan de xem timeline.", 13, MUTED)],
+                                [ft.Icon(ft.Icons.PSYCHOLOGY, color=GREEN, size=30), text("Chạy một thuật toán để xem timeline.", 13, MUTED)],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                 alignment=ft.MainAxisAlignment.CENTER,
                             ),
@@ -2349,14 +2469,14 @@ class FletDashboard:
                     border_radius=4,
                     padding=8,
                 ),
-                debug_row("bai toan", csp_data.get("concept")),
+                debug_row("bài toán", csp_data.get("concept")),
                 debug_row("bien", csp_data.get("selectedVariable")),
                 debug_row("mien", csp_data.get("domainValues", [])),
                 debug_row("gia tri thu", csp_data.get("triedValue")),
-                debug_row("rang buoc", csp_data.get("constraintCheck", [])),
+                debug_row("ràng buộc", csp_data.get("constraintCheck", [])),
                 debug_row("ket luan", csp_data.get("result")),
                 debug_row("gan hien tai", csp_data.get("assignment", [])),
-                debug_row("don hang", csp_data.get("remainingOrders", [])),
+                debug_row("đơn hàng", csp_data.get("remainingOrders", [])),
                 debug_row("tai trong", f"{csp_data.get('loadKg', 0)} / {csp_data.get('capacityKg', '-')} kg"),
                 debug_row("route tam", active_step.candidatePath),
             ]

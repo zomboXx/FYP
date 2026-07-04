@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.models.schemas import AlgorithmResponse, AvailableOrder, MapSummary, PermissionRow, Scenario, UserPublic
+from app.models.schemas import AlgorithmResponse, AvailableOrder, MapSummary, PermissionRow, Scenario, ShipperStats, UserPublic
 
 
 @dataclass
@@ -50,6 +50,7 @@ class FletState:
     permissions: list[PermissionRow] = field(default_factory=list)
     orders: list[AvailableOrder] = field(default_factory=list)
     accepted_orders: list[AvailableOrder] = field(default_factory=list)
+    shipper_stats: ShipperStats | None = None
     selected_orders: set[str] = field(default_factory=set)
     arrival_prompted_order_ids: set[str] = field(default_factory=set)
     hydration_completed_total: int = 0

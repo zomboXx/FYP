@@ -35,6 +35,7 @@ from app.services.auth_service import (
     accepted_order_models,
     allowed_order_categories,
     assert_algorithm_allowed,
+    mark_delivery_started,
     shipper_operation_profile,
 )
 
@@ -77,8 +78,8 @@ def run_pathfinding(request: PathfindingRequest, user: UserPublic) -> AlgorithmR
             "pathCost": result.cost,
         },
         explanation=(
-            f"{request.algorithm.upper()} tim duong tu {request.startId} den {request.goalId}, "
-            f"mo rong {len(result.visited_nodes)} nut va uoc tinh {result.total_minutes} phut."
+            f"{request.algorithm.upper()} tìm đường từ {request.startId} đến {request.goalId}, "
+            f"mở rộng {len(result.visited_nodes)} nút và ước tính {result.total_minutes} phút."
         ),
         traceSteps=_enrich_trace_steps(result.trace_steps),
     )
@@ -129,7 +130,7 @@ def optimize_delivery(request: DeliveryOptimizeRequest, user: UserPublic) -> Alg
             "goalState": result["goalState"],
             "stateHistory": result["stateHistory"],
         },
-        explanation=f"{request.algorithm} chon thu tu diem dung {order_text} voi tong chi phi {result['totalCost']}.",
+        explanation=f"{request.algorithm} chọn thứ tự điểm dừng {order_text} với tổng chi phí {result['totalCost']}.",
         traceSteps=_enrich_trace_steps(result["traceSteps"]),
     )
 
@@ -145,7 +146,7 @@ def check_constraints(request: ConstraintCheckRequest, user: UserPublic) -> Algo
         visitedNodes=list(dict.fromkeys(request.route)),
         runtimeMs=round(runtime_ms, 3),
         metrics={key: value for key, value in result.items() if key != "traceSteps"},
-        explanation="Lo trinh hop le." if result["valid"] else "Phat hien rang buoc vi pham: " + " ".join(result["violations"]),
+        explanation="Lộ trình hợp lệ." if result["valid"] else "Phát hiện ràng buộc vi phạm: " + " ".join(result["violations"]),
         traceSteps=_enrich_trace_steps(result["traceSteps"]),
     )
 
@@ -166,9 +167,9 @@ def solve_csp(request: CspSolveRequest, user: UserPublic) -> AlgorithmResponse:
         runtimeMs=round(runtime_ms, 3),
         metrics={key: value for key, value in result.items() if key not in {"path", "traceSteps"}},
         explanation=(
-            f"{request.algorithm} tim duoc lich pickup/dropoff thoa tat ca rang buoc."
+            f"{request.algorithm} tìm được lịch pickup/dropoff thỏa tất cả ràng buộc."
             if result["valid"]
-            else f"{request.algorithm} ket luan bai toan CSP khong co nghiem voi rang buoc hien tai."
+            else f"{request.algorithm} kết luận bài toán CSP không có nghiệm với ràng buộc hiện tại."
         ),
         traceSteps=_enrich_trace_steps(result["traceSteps"]),
     )
@@ -195,11 +196,11 @@ def run_complex_search(request: ComplexSearchRequest, user: UserPublic) -> Algor
         runtimeMs=round(runtime_ms, 3),
         metrics=metrics,
         explanation=(
-            f"{request.algorithm} lap conditional plan cho hidden event {request.hiddenEvent}; "
-            f"complete={result.get('complete', False)} tren mo hinh AND-OR."
+            f"{request.algorithm} lập conditional plan cho hidden event {request.hiddenEvent}; "
+            f"complete={result.get('complete', False)} trên mô hình AND-OR."
             if request.algorithm == "and_or"
-            else f"{request.algorithm} xu ly {request.hiddenEvent} trong moi truong partial observable; "
-            f"sensor radius={request.sensorRadius}, re-plan {result.get('replans', 0)} lan."
+            else f"{request.algorithm} xử lý {request.hiddenEvent} trong môi trường partial observable; "
+            f"sensor radius={request.sensorRadius}, re-plan {result.get('replans', 0)} lần."
         ),
         traceSteps=_enrich_trace_steps(result["traceSteps"]),
     )
@@ -223,7 +224,7 @@ def simulate_dynamic_event(request: EventSimulateRequest, user: UserPublic) -> A
             candidatePath=[],
             costSoFar=branch["minutes"],
             heuristic=branch["probability"],
-            decisionReason=f"Nhanh {branch['event']} co xac suat {branch['probability']} va chi phi {branch['minutes']} phut.",
+            decisionReason=f"Nhánh {branch['event']} có xác suất {branch['probability']} và chi phí {branch['minutes']} phút.",
         )
         for index, branch in enumerate(expectimax["branches"])
     ] if request.debug else []
@@ -240,8 +241,8 @@ def simulate_dynamic_event(request: EventSimulateRequest, user: UserPublic) -> A
                 costSoFar=replan["replannedMinutes"],
                 heuristic=0,
                 decisionReason=(
-                    f"Truoc su kien: {' -> '.join(replan['originalPath'])} ({replan['originalMinutes']} phut). "
-                    f"Sau su kien: {' -> '.join(replan['replannedPath'])} ({replan['replannedMinutes']} phut)."
+                    f"Trước sự kiện: {' -> '.join(replan['originalPath'])} ({replan['originalMinutes']} phút). "
+                    f"Sau sự kiện: {' -> '.join(replan['replannedPath'])} ({replan['replannedMinutes']} phút)."
                 ),
             ),
         )
@@ -263,7 +264,7 @@ def simulate_dynamic_event(request: EventSimulateRequest, user: UserPublic) -> A
             "branches": expectimax["branches"],
             "updatedScenario": updated.model_dump(),
         },
-        explanation=replan["eventMessage"] + " He thong cap nhat state moi va re-plan truoc khi tinh chi phi ky vong.",
+        explanation=replan["eventMessage"] + " Hệ thống cập nhật state mới và re-plan trước khi tính chi phí kỳ vọng.",
         traceSteps=_enrich_trace_steps(trace_steps),
     )
 
@@ -298,7 +299,7 @@ def run_adversarial_search(request: AdversarialSearchRequest, user: UserPublic) 
         },
         explanation=(
             f"{request.algorithm} chon robust route tu {result['start']} den {result['goal']} trong khi "
-            f"MIN ap dung disruption bat loi; worst-case cost {result['worstCaseCost']}."
+            f"MIN áp dụng disruption bất lợi; worst-case cost {result['worstCaseCost']}."
         ),
         traceSteps=_enrich_trace_steps(result["traceSteps"]),
     )
@@ -518,7 +519,7 @@ def _build_shipper_route(
                 pickup,
                 "approach_pickup",
                 order.id,
-                f"Di tu vi tri hien tai den diem nhan {len(bundle)} don tai {pickup}.",
+                f"Đi từ vị trí hiện tại đến điểm nhận {len(bundle)} đơn tại {pickup}.",
             )
             for bundled_order in bundle:
                 bundled_dropoff = _order_dropoff(bundled_order)
@@ -526,14 +527,14 @@ def _build_shipper_route(
                     bundled_dropoff,
                     "serve_order",
                     bundled_order.id,
-                    f"Da nhan hang tai {pickup}, giao {bundled_order.id} den {bundled_dropoff}.",
+                    f"Đã nhận hàng tại {pickup}, giao {bundled_order.id} đến {bundled_dropoff}.",
                 )
                 if draft.total_minutes > bundled_order.due_min:
                     late_orders += 1
             index += len(bundle)
             continue
         else:
-            draft.append_leg(dropoff, "warehouse_delivery", order.id, f"Giao {order.id} tu tuyen kho den {dropoff}.")
+            draft.append_leg(dropoff, "warehouse_delivery", order.id, f"Giao {order.id} từ tuyến kho đến {dropoff}.")
         if draft.total_minutes > order.due_min:
             late_orders += 1
         index += 1
@@ -549,8 +550,9 @@ def plan_accepted_orders(request: DeliveryOptimizeRequest, user: UserPublic) -> 
     if not orders:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Chua co don hang da nhan phu hop de lap lo trinh.",
+            detail="Chưa có đơn hàng đã nhận phù hợp để lập lộ trình.",
         )
+    mark_delivery_started(user.id, [order.id for order in orders])
     ordered = _ordered_for_shipper_profile(scenario, profile, request.routingStrategy, start_id, orders)
     started = perf_counter()
     draft, late_orders = _build_shipper_route(scenario, profile, start_id, ordered, request.debug)
@@ -584,9 +586,9 @@ def plan_accepted_orders(request: DeliveryOptimizeRequest, user: UserPublic) -> 
             "totalCost": round(draft.total_minutes + max(0.0, load_kg - capacity) * 40, 2),
         },
         explanation=(
-            f"On-demand: {start_id} -> pickup -> dropoff cho {len(ordered)} don."
+            f"On-demand: {start_id} -> pickup -> dropoff cho {len(ordered)} đơn."
             if profile == "on_demand"
-            else f"Warehouse delivery dung {strategy_label} qua {len(ordered)} diem giao."
+            else f"Warehouse delivery dùng {strategy_label} qua {len(ordered)} điểm giao."
         ),
         traceSteps=_enrich_trace_steps(draft.trace_steps),
     )

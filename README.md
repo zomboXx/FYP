@@ -1,5 +1,9 @@
 # Find Your Path
 
+<p align="center">
+  <img src="src/app/ui/assets/app-icon.png" alt="Find Your Path logo" width="160" />
+</p>
+
 **Smart Urban Delivery Planner**  
 Trợ lý lập lộ trình giao hàng xe máy trong đô thị Việt Nam.
 

@@ -95,7 +95,7 @@ def bfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
             [],
             0,
             0,
-            "Khoi tao BFS: node/edge tren ban do giu mau nen cho den khi bat dau xet frontier.",
+            "Khởi tạo BFS: node/edge trên bản đồ giữ màu nền cho đến khi bắt đầu xét frontier.",
             debug_data={"root": start, "parentMap": {}, "suppressHighlights": True},
         )
     while queue:
@@ -112,7 +112,7 @@ def bfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
                 path,
                 len(path) - 1,
                 0,
-                "BFS lay nut cu nhat trong hang doi FIFO.",
+                "BFS lấy nút cũ nhất trong hàng đợi FIFO.",
                 previous=parent.get(node),
                 preview_path=path,
                 debug_data={"root": start, "parentMap": _parent_debug(parent)},
@@ -128,7 +128,7 @@ def bfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
                     path,
                     path_time(scenario, path),
                     0,
-                    "Da gap dich nen dung tim kiem.",
+                    "Đã gặp đích nên dừng tìm kiếm.",
                     previous=parent.get(node),
                     preview_path=path,
                     debug_data={"root": start, "parentMap": _parent_debug(parent)},
@@ -150,7 +150,7 @@ def bfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
                         path,
                         len(path),
                         0,
-                        f"Them {neighbor} vao frontier voi node truoc do la {node}.",
+                        f"Thêm {neighbor} vào frontier với node trước đó là {node}.",
                         previous=parent.get(node),
                         preview_path=path,
                         debug_data={
@@ -182,7 +182,7 @@ def dfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
             [],
             0,
             0,
-            "Khoi tao DFS: ban do bat dau tu trang thai nen truoc khi pop stack.",
+            "Khởi tạo DFS: bản đồ bắt đầu từ trạng thái nền trước khi pop stack.",
             debug_data={"root": start, "parentMap": {}, "suppressHighlights": True},
         )
     while stack:
@@ -202,7 +202,7 @@ def dfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
                 path,
                 len(path) - 1,
                 0,
-                "DFS lay nut moi nhat trong stack LIFO.",
+                "DFS lấy nút mới nhất trong stack LIFO.",
                 previous=parent.get(node),
                 preview_path=path,
                 debug_data={"root": start, "parentMap": _parent_debug(parent)},
@@ -218,7 +218,7 @@ def dfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
                     path,
                     path_time(scenario, path),
                     0,
-                    "Da gap dich nen dung tim kiem.",
+                    "Đã gặp đích nên dừng tìm kiếm.",
                     previous=parent.get(node),
                     preview_path=path,
                     debug_data={"root": start, "parentMap": _parent_debug(parent)},
@@ -240,7 +240,7 @@ def dfs(scenario: Scenario, start: str, goal: str, debug: bool = False) -> Searc
                         path,
                         len(path),
                         0,
-                        f"Day {neighbor} vao stack voi node truoc do la {node}.",
+                        f"Đẩy {neighbor} vào stack với node trước đó là {node}.",
                         previous=parent.get(node),
                         preview_path=path,
                         debug_data={
@@ -273,7 +273,7 @@ def _priority_search(scenario: Scenario, start: str, goal: str, mode: str, debug
             [],
             0,
             initial_priority,
-            f"Khoi tao {mode.upper()}: chua highlight node/edge nao tren ban do.",
+            f"Khởi tạo {mode.upper()}: chưa highlight node/edge nào trên bản đồ.",
             debug_data={
                 "root": start,
                 "parentMap": {},
@@ -299,7 +299,7 @@ def _priority_search(scenario: Scenario, start: str, goal: str, mode: str, debug
                 path,
                 cost_so_far,
                 heuristic_minutes(scenario, node, goal),
-                f"{mode.upper()} chon {node} vi priority hien tai la {priority:.2f}.",
+                f"{mode.upper()} chọn {node} vì priority hiện tại là {priority:.2f}.",
                 previous=parent.get(node),
                 preview_path=_parent_path(parent, node),
                 debug_data={
@@ -321,7 +321,7 @@ def _priority_search(scenario: Scenario, start: str, goal: str, mode: str, debug
                     path,
                     cost_so_far,
                     0,
-                    "Da gap dich, duong di hien tai duoc tra ve.",
+                    "Đã gặp đích, đường đi hiện tại được trả về.",
                     previous=parent.get(node),
                     preview_path=_parent_path(parent, node),
                     debug_data={"evaluation": mode, "parentMap": _parent_debug(parent)},
