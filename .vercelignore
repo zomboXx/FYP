@@ -5,6 +5,7 @@
 .pytest_cache
 test-results
 output
+tmp
 *.sqlite
 **/__pycache__
 **/*.pyc
