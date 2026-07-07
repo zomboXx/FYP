@@ -31,7 +31,7 @@ Find Your Path là đồ án cuối kỳ của học phần Trí Tuệ Nhân T�
 Khi cần chạy local để phát triển hoặc kiểm tra source:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\run_app.ps1
+powershell -ExecutionPolicy Bypass -File .\run_app.ps1 -Install
 ```
 
 ## Ứng dụng làm được gì?

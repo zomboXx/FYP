@@ -45,6 +45,13 @@ function Set-AppPythonPath {
     $env:PYTHONPATH = $Source
 }
 
+function Invoke-PythonChecked([string[]]$Arguments, [string]$FailureMessage) {
+    & $Python @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw $FailureMessage
+    }
+}
+
 function Test-PortFree([int]$CandidatePort) {
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse("127.0.0.1"), $CandidatePort)
     try {
@@ -73,15 +80,14 @@ $Python = Find-Python
 Set-AppPythonPath
 
 if ($Install) {
-    & $Python -m pip install -r $Requirements
+    Invoke-PythonChecked @("-m", "pip", "install", "-r", $Requirements) "Khong cai duoc requirements."
 }
 
-try {
-    & $Python -c "import fastapi, uvicorn, flet, flet_web, flet_map" | Out-Null
-}
-catch {
+& $Python -c "import fastapi, uvicorn, flet, flet_web, flet_map" | Out-Null
+if ($LASTEXITCODE -ne 0) {
     Write-Host "Thieu dependency. Dang cai requirements..." -ForegroundColor Yellow
-    & $Python -m pip install -r $Requirements
+    Invoke-PythonChecked @("-m", "pip", "install", "-r", $Requirements) "Khong cai duoc requirements."
+    Invoke-PythonChecked @("-c", "import fastapi, uvicorn, flet, flet_web, flet_map") "Dependency van chua san sang sau khi cai requirements."
 }
 
 $ActualPort = Find-FreePort $Port
@@ -92,4 +98,4 @@ if ($ActualPort -ne $Port) {
 Set-AppPythonPath
 Write-Host "Dang chay Find Your Path tai http://127.0.0.1:$ActualPort" -ForegroundColor Green
 Write-Host "Nhan Ctrl+C trong terminal nay de dung server." -ForegroundColor DarkGray
-& $Python -m uvicorn app.main:app --host 127.0.0.1 --port $ActualPort
+Invoke-PythonChecked @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$ActualPort") "Uvicorn dung voi loi."

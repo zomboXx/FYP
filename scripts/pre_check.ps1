@@ -40,16 +40,23 @@ function Set-AppPythonPath {
     $env:PYTHONPATH = $Source
 }
 
+function Invoke-PythonChecked([string[]]$Arguments, [string]$FailureMessage) {
+    & $Python @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw $FailureMessage
+    }
+}
+
 Set-Location $Root
 Set-AppPythonPath
 $Python = Find-Python
 
 Write-Host "Compile source..." -ForegroundColor Cyan
-& $Python -m compileall src
-& $Python -m compileall api
+Invoke-PythonChecked @("-m", "compileall", "src") "Compile source failed."
+Invoke-PythonChecked @("-m", "compileall", "api") "Compile API failed."
 
 Write-Host "Run tests..." -ForegroundColor Cyan
-& $Python -m pytest -q
+Invoke-PythonChecked @("-m", "pytest", "-q") "Tests failed or pytest is not installed. Run: python -m pip install -r requirements.txt"
 
 Write-Host "Scan for stale comments/debug code..." -ForegroundColor Cyan
 $patterns = "TODO|FIXME|print\(|console\.log|^\s*#\s*(def|class|return|import|from)\b"
