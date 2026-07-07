@@ -43,7 +43,7 @@ Find Your Path gom các luồng quan trọng của một hệ thống điều ph
 | Tài xế/shipper | Đăng nhập theo loại tài khoản, xem nhiệm vụ khả dụng, nhận đơn, lập tuyến, hoàn tất đơn và theo dõi thời gian hoạt động. |
 | Điều phối tuyến đường | Tính route theo vị trí hiện tại, kho, pickup và dropoff; hiển thị trực quan trên bản đồ Leaflet/OpenStreetMap. |
 | AI/Defense Lab | Chạy, so sánh và quan sát các nhóm thuật toán qua path, visited nodes, runtime, metrics và trace/debug. |
-| Admin/giảng viên vấn đáp | Quản lý nhóm shipper, quyền thuật toán, kịch bản kiểm thử và các luồng phục vụ giải thích thuật toán. |
+| Quản trị và kiểm thử thuật toán | Quản lý nhóm shipper, quyền thuật toán, kịch bản kiểm thử và các luồng giải thích thuật toán. |
 | Chăm sóc tài xế | Nhắc nhở sức khỏe và thống kê thời gian chạy theo ngày/tháng để mô phỏng yếu tố vận hành thực tế. |
 
 Các luồng đáng xem nhanh trên web app:
@@ -89,7 +89,7 @@ scripts              Script hỗ trợ
 docs                 Tài liệu BA, demo, thuật toán và báo cáo
 ```
 
-## Hướng dẫn bằng hình ảnh
+## Minh họa luồng sử dụng
 
 ### Luồng shipper: đăng nhập, nhận đơn và lập tuyến
 
