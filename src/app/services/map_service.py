@@ -42,7 +42,7 @@ def _detail_from_row(row: sqlite3.Row) -> MapDetail:
 def _fetch_map(db: sqlite3.Connection, map_id: int) -> sqlite3.Row:
     row = db.execute("SELECT * FROM maps WHERE id = ?", (map_id,)).fetchone()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Khong tim thay map")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy map")
     return row
 
 
@@ -105,7 +105,7 @@ def default_map_for_group(algorithm_group: str) -> MapDetail:
             return MapDetail(
                 id=0,
                 name="OSM fallback map",
-                description="Map mac dinh khi database chua co ban ghi.",
+                description="Map mặc định khi database chưa có bản ghi.",
                 algorithmGroup=algorithm_group,
                 isDefault=True,
                 nodeCount=len(scenario.nodes),

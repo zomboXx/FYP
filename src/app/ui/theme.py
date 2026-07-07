@@ -56,8 +56,6 @@ ALGORITHM_GROUPS: dict[str, dict[str, Any]] = {
         "algorithms": [
             ("backtracking", "Backtracking"),
             ("forward_checking", "Forward Checking"),
-            ("ac3", "Arc Consistency (AC-3)"),
-            ("min_conflicts", "Min-Conflicts"),
         ],
     },
     "adversarial": {
@@ -131,18 +129,22 @@ ALGORITHM_MAP_STYLES: dict[str, dict[str, str]] = {
 WORKSPACE_COPY = {
     "shipper": (
         "SHIPPER DISPATCH",
-        "Nhan don, lap lo trinh va theo doi graph giao hang trong mot man hinh lam viec.",
+        "Nhận đơn, lập lộ trình và theo dõi graph giao hàng trong một màn hình làm việc.",
+    ),
+    "stats": (
+        "SHIPPER STATS",
+        "Tổng kết phiên làm việc, hiệu suất giao hàng, tỉ lệ trễ đơn và cảnh báo quá sức.",
     ),
     "defense": (
         "DEFENSE LAB",
-        "Mo phong thuat toan, xem frontier/visited/cost va ke cau chuyen debug cho buoi bao ve.",
+        "Mô phỏng thuật toán, xem frontier/visited/cost và kể câu chuyện debug cho buổi bảo vệ.",
     ),
     "admin": (
         "ADMIN PERMISSIONS",
-        "Bat tat nhom thuat toan theo nhom shipper va giu luong demo trong tam kiem soat.",
+        "Bật tắt nhóm thuật toán theo nhóm shipper và giữ luồng demo trong tầm kiểm soát.",
     ),
     "map": (
         "LIVE MAP",
-        "Ban do OpenStreetMap/Leaflet co zoom, pan, nodes, edges va click de lay toa do.",
+        "Bản đồ OpenStreetMap/Leaflet có zoom, pan, nodes, edges và click để lấy tọa độ.",
     ),
 }

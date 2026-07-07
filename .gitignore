@@ -8,6 +8,7 @@ __pycache__/
 # Local runtime output
 *.log
 output/
+tmp/
 test-results/
 
 # Local secrets
@@ -20,3 +21,9 @@ test-results/
 Thumbs.db
 .vscode/
 .vercel/
+
+# Large document/media files (not source code)
+*.pptx
+*.docx
+*.tar
+*.tar.gz

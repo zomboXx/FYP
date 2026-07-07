@@ -8,11 +8,14 @@ from app.models.schemas import (
     AvailableOrder,
     CompleteOrderRequest,
     DeliveryOptimizeRequest,
+    FailOrderRequest,
     ShipperPlanRequest,
+    ShipperStats,
     UserPublic,
 )
-from app.services.auth_service import accept_orders, complete_order, get_current_user, list_available_orders
+from app.services.auth_service import accept_orders, complete_order, fail_order, get_current_user, list_available_orders
 from app.services.route_service import plan_accepted_orders
+from app.services.shipper_stats_service import shipper_stats
 
 
 router = APIRouter()
@@ -35,6 +38,16 @@ def post_accept_orders(request: AcceptOrdersRequest, user: UserPublic = Depends(
 @router.post("/shipper/orders/complete", response_model=AvailableOrder)
 def post_complete_order(request: CompleteOrderRequest, user: UserPublic = Depends(get_current_user)) -> AvailableOrder:
     return complete_order(request.orderId, user)
+
+
+@router.post("/shipper/orders/fail", response_model=AvailableOrder)
+def post_fail_order(request: FailOrderRequest, user: UserPublic = Depends(get_current_user)) -> AvailableOrder:
+    return fail_order(request.orderId, user, request.reason)
+
+
+@router.get("/shipper/stats", response_model=ShipperStats)
+def get_shipper_stats(user: UserPublic = Depends(get_current_user)) -> ShipperStats:
+    return shipper_stats(user)
 
 
 @router.post("/shipper/routes/plan", response_model=AlgorithmResponse)

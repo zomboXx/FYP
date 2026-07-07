@@ -174,11 +174,13 @@ def _trace_local_state(
 ) -> None:
     start = start_id or scenario.depot_id
     goal = goal_id or start
+    stops = _order_route(scenario, state, start, goal)
+    route, _, _, _ = expand_route_with_astar(scenario, stops)
     _append_trace(
         trace_steps,
         phase,
         _state_node(scenario, state),
-        _order_route(scenario, state, start, goal),
+        route or stops,
         cost,
         reason,
         {
@@ -253,7 +255,7 @@ def evaluate_delivery_order(
                 pickup,
                 pickup_path,
                 current_time,
-                f"Nhan don {order.id} tai {pickup}: tai {load:.1f}/{capacity:.1f}kg, ready {order.ready_min}.",
+                f"Nhận đơn {order.id} tại {pickup}: tải {load:.1f}/{capacity:.1f}kg, ready {order.ready_min}.",
             )
         service_minutes += 1
         current_time += 1
@@ -280,7 +282,7 @@ def evaluate_delivery_order(
                 dropoff,
                 dropoff_path,
                 current_time,
-                f"Giao don {order.id} ({order.category}/{order.urgency}) luc {current_time:.1f}, deadline {order.due_min}.",
+                f"Giao đơn {order.id} ({order.category}/{order.urgency}) lúc {current_time:.1f}, deadline {order.due_min}.",
             )
         service_minutes += order.service_min
         current_time += order.service_min
@@ -290,6 +292,17 @@ def evaluate_delivery_order(
     return_path, _, return_minutes, _ = expand_route_with_astar(scenario, [current_position, goal])
     if return_path:
         current_time += return_minutes
+        if debug and current_position != goal:
+            _append_trace(
+                trace_steps,
+                "route_to_goal",
+                goal,
+                return_path,
+                current_time,
+                f"Đi từ điểm giao cuối {current_position} đến đích kết thúc {goal}.",
+            )
+        current_position = goal
+        state_history.append(state_snapshot(scenario, current_position, current_time, carrying, pending, delivered).model_dump())
         service_path = path
     else:
         service_path = path
@@ -354,10 +367,10 @@ def simple_hill_climbing(
             "hill_climbing_init",
             current,
             current_cost,
-            "Khoi tao state ban dau. Trong demo nay h(state)=totalCost can giam, value=-h nen value cang lon cang tot.",
+            "Khởi tạo state ban đầu. Trong demo này h(state)=totalCost cần giảm, value=-h nên value càng lớn càng tốt.",
             {
                 "courseConcept": "Simple Hill Climbing / First-Improvement Hill Climbing.",
-                "rule": "Duyet neighbor theo thu tu; gap neighbor dau tien co value(neighbor) > value(current) thi di ngay.",
+                "rule": "Duyệt neighbor theo thứ tự; gặp neighbor đầu tiên có value(neighbor) > value(current) thì đi ngay.",
                 "currentValue": round(-current_cost, 2),
                 "comparison": ">",
                 "result": "INIT",
@@ -380,9 +393,9 @@ def simple_hill_climbing(
                     "first_better_check",
                     candidate,
                     candidate_cost,
-                    f"Thu neighbor swap {i}-{j}: value={candidate_value:.2f}, current={current_value:.2f}.",
+                    f"Thử neighbor swap {i}-{j}: value={candidate_value:.2f}, current={current_value:.2f}.",
                     {
-                        "courseConcept": "Neighbor duoc tao bang swap hai vi tri trong permutation don hang.",
+                        "courseConcept": "Neighbor được tạo bằng swap hai vị trí trong permutation đơn hàng.",
                         "currentState": _order_state(current),
                         "currentValue": round(current_value, 2),
                         "candidateValue": round(candidate_value, 2),
@@ -407,9 +420,9 @@ def simple_hill_climbing(
                     "hill_stop",
                     current,
                     current_cost,
-                    "Khong tim thay neighbor nao co value lon hon; dung tai local optimum.",
+                    "Không tìm thấy neighbor nào có value lớn hơn; dừng tại local optimum.",
                     {
-                        "courseConcept": "Hill Climbing co the ket o cuc tri cuc bo vi chi nhin neighbor gan.",
+                        "courseConcept": "Hill Climbing có thể kẹt ở cực trị cục bộ vì chỉ nhìn neighbor gần.",
                         "trap": "local_optimum",
                         "result": "STOP",
                     },
@@ -459,9 +472,9 @@ def steepest_ascent_hill_climbing(
                 "steepest_scan",
                 best_neighbor,
                 best_cost,
-                f"Da quet {neighbor_count} neighbor va chon neighbor co value lon nhat.",
+                f"Đã quét {neighbor_count} neighbor và chọn neighbor có value lớn nhất.",
                 {
-                    "courseConcept": "Steepest-Ascent Hill Climbing: xet tat ca neighbor, chon neighbor tot nhat.",
+                    "courseConcept": "Steepest-Ascent Hill Climbing: xét tất cả neighbor, chọn neighbor tốt nhất.",
                     "currentState": _order_state(current),
                     "currentValue": round(current_value, 2),
                     "bestNeighborValue": round(best_value, 2),
@@ -558,7 +571,7 @@ def sideways_hill_climbing(
                 "sideways_move",
                 candidate,
                 candidate_cost,
-                f"Chap nhan swap {i}-{j} vi value(neighbor) >= value(current).",
+                f"Chấp nhận swap {i}-{j} vì value(neighbor) >= value(current).",
                 {
                     "courseConcept": "Hill Climbing with Sideways Moves.",
                     "currentState": _order_state(current),
@@ -705,21 +718,40 @@ def simulated_annealing(
     best_cost = current_cost
     best_value = current_value
     temperature = 2.0
-    cooling_rate = 0.94
+    cooling_rate = 0.970
     iterations = 0
     trace_steps: list[TraceStep] = []
     while temperature > 0.01 and iterations < 250:
         iterations += 1
+        previous = current[:]
+        previous_cost = current_cost
+        previous_value = current_value
         candidate = current[:]
         i, j = rng.sample(range(len(candidate)), 2)
         candidate[i], candidate[j] = candidate[j], candidate[i]
         candidate_cost = _state_cost(scenario, candidate, capacity_kg, start_id, goal_id)
         candidate_value = -candidate_cost
-        delta = candidate_value - current_value
+        delta = candidate_value - previous_value
         probability = 1.0 if delta > 0 else math.exp(delta / temperature)
         random_draw = 0.0 if delta > 0 else rng.random()
         accept = delta > 0 or random_draw < probability
+        if accept:
+            current = candidate
+            current_cost = candidate_cost
+            current_value = candidate_value
+        improved_best = current_value > best_value
+        if improved_best:
+            best = current[:]
+            best_cost = current_cost
+            best_value = current_value
         if debug:
+            acceptance_reason = (
+                "better_neighbor"
+                if delta > 0
+                else "random_draw_below_probability"
+                if accept
+                else "random_draw_above_probability"
+            )
             _trace_local_state(
                 trace_steps,
                 scenario,
@@ -731,31 +763,37 @@ def simulated_annealing(
                     f"T={temperature:.2f}, p={probability:.3f}; {'chap nhan' if accept else 'tu choi'}."
                 ),
                 {
-                    "courseConcept": "Simulated Annealing: delta > 0 thi nhan, delta <= 0 thi nhan voi p=e^(delta/T).",
-                    "currentState": _order_state(current),
-                    "currentValue": round(current_value, 2),
+                    "courseConcept": "Simulated Annealing / Luyen kim: doi khi chap nhan neighbor xau de thoat local optimum.",
+                    "rule": "Neu deltaValue > 0 thi nhan; neu deltaValue <= 0 thi nhan khi randomDraw < e^(deltaValue / temperature).",
+                    "previousState": _order_state(previous),
+                    "candidateState": _order_state(candidate),
+                    "nextState": _order_state(current),
+                    "previousCost": round(previous_cost, 2),
+                    "candidateCost": round(candidate_cost, 2),
+                    "nextCost": round(current_cost, 2),
+                    "deltaCost": round(candidate_cost - previous_cost, 2),
+                    "previousValue": round(previous_value, 2),
                     "candidateValue": round(candidate_value, 2),
+                    "nextValue": round(current_value, 2),
                     "deltaValue": round(delta, 2),
                     "temperature": round(temperature, 2),
+                    "coolingRate": cooling_rate,
+                    "acceptanceFormula": "p = e^(deltaValue / temperature)",
                     "acceptanceProbability": round(probability, 4),
                     "randomDraw": round(random_draw, 4),
                     "accepted": accept,
-                    "cooling": "T = 0.94 * T",
+                    "acceptanceReason": acceptance_reason,
+                    "betterThanPrevious": delta > 0,
+                    "improvedBest": improved_best,
+                    "bestCost": round(best_cost, 2),
                     "bestValue": round(best_value, 2),
+                    "cooling": f"temperature = temperature * {cooling_rate:.3f}",
                     "swap": [i, j],
                     "result": "ACCEPT" if accept else "REJECT",
                 },
                 start_id,
                 goal_id,
             )
-        if accept:
-            current = candidate
-            current_cost = candidate_cost
-            current_value = candidate_value
-        if current_value > best_value:
-            best = current[:]
-            best_cost = current_cost
-            best_value = current_value
         temperature *= cooling_rate
     result = evaluate_delivery_order(scenario, best, capacity_kg, debug, start_id, goal_id)
     result["iterations"] = iterations

@@ -14,18 +14,18 @@ def simulate_event(scenario: Scenario, event_type: str, affected_edge: tuple[str
         edge = _pick_edge(updated, affected_edge)
         edge.blocked = True
         edge.traffic = "heavy"
-        return updated, f"Tai nan lam chan duong {edge.source}-{edge.target}; he thong can tim duong thay the."
+        return updated, f"Tai nạn làm chặn đường {edge.source}-{edge.target}; hệ thống cần tìm đường thay thế."
     if event_type == "peak_hour":
         for edge in updated.edges:
             if edge.traffic != "light":
                 edge.traffic = "heavy"
-        return updated, "Gio cao diem bien nhieu truc duong thanh ket xe nang."
+        return updated, "Giờ cao điểm biến nhiều trục đường thành kẹt xe nặng."
     for edge in updated.edges:
         if edge.traffic == "light":
             edge.traffic = "normal"
         elif edge.traffic == "normal":
             edge.traffic = "heavy"
-    return updated, "Mua lon lam tang thoi gian di chuyen tren toan mang duong."
+    return updated, "Mưa lớn làm tăng thời gian di chuyển trên toàn mạng đường."
 
 
 def _pick_edge(scenario: Scenario, affected_edge: tuple[str, str] | None):

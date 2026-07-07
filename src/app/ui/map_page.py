@@ -366,7 +366,7 @@ def _render_map_html(payload: dict) -> str:
       <span class="pill" id="map-mode">OSM + Leaflet</span>
     </header>
     <div class="body">
-      <p class="muted">Bat che do dat node de click tren ban do. Keo node de sua vi tri; dung bang edge de noi node OSM hoac node thu cong.</p>
+      <p class="muted">Bật chế độ đặt node để click trên bản đồ. Kéo node để sửa vị trí; dùng bảng edge để nối node OSM hoặc node thủ công.</p>
       <div class="actions">
         <button class="primary" id="fit-route">Fit route</button>
         <button class="active" id="toggle-node-place">Place node: On</button>
@@ -382,7 +382,7 @@ def _render_map_html(payload: dict) -> str:
           <button id="auto-leg">Auto</button>
         </div>
       </div>
-      <div id="manual-list">Manual nodes: chua co</div>
+      <div id="manual-list">Manual nodes: chưa có</div>
       <div class="edge-builder">
         <h2>Custom edges</h2>
         <div class="edge-grid">
@@ -408,7 +408,7 @@ def _render_map_html(payload: dict) -> str:
           <button id="copy-graph">Copy graph</button>
           <button id="clear-edges">Clear edges</button>
         </div>
-        <div id="edge-list">Custom edges: chua co</div>
+        <div id="edge-list">Custom edges: chưa có</div>
       </div>
     </div>
   </section>
@@ -621,12 +621,12 @@ def _render_map_html(payload: dict) -> str:
       const kind = String(leg.kind || "");
       addTemporaryMarker(leg.from, vehicleAsset(leg, order), kind === "warehouse_delivery" ? "Tai xe xe van chuyen" : "Tai xe shipper", 54);
       if (kind === "approach_pickup") {{
-        addTemporaryMarker(pickup || leg.to, pickupAsset(order.category), "Diem nhan hang", 46);
+        addTemporaryMarker(pickup || leg.to, pickupAsset(order.category), "Điểm nhận hàng", 46);
       }} else if (kind === "serve_order") {{
-        addTemporaryMarker(pickup, pickupAsset(order.category), "Diem nhan hang", 46);
-        addTemporaryMarker(dropoff, iconAssets.dropoffPin, "Diem giao hang", 46);
+        addTemporaryMarker(pickup, pickupAsset(order.category), "Điểm nhận hàng", 46);
+        addTemporaryMarker(dropoff, iconAssets.dropoffPin, "Điểm giao hàng", 46);
       }} else if (kind === "warehouse_delivery" || kind === "transport_to_warehouse") {{
-        addTemporaryMarker(dropoff || leg.to, iconAssets.dropoffPin, "Diem giao hang", 46);
+        addTemporaryMarker(dropoff || leg.to, iconAssets.dropoffPin, "Điểm giao hàng", 46);
       }}
     }}
 
@@ -782,7 +782,7 @@ def _render_map_html(payload: dict) -> str:
           const nextLat = Number(latInput.value);
           const nextLng = Number(lngInput.value);
           if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) {{
-            manualList.textContent = "Toa do khong hop le. Hay nhap lat/lng dang so.";
+            manualList.textContent = "Tọa độ không hợp lệ. Hãy nhập lat/lng dạng số.";
             return;
           }}
           if (nextId !== node.id && nodeIdExists(nextId, node)) {{
@@ -877,7 +877,7 @@ def _render_map_html(payload: dict) -> str:
       }}
       manualList.textContent = manualNodes.length
         ? manualNodes.map((node) => `${{node.id}}: [${{node.lat.toFixed(6)}}, ${{node.lng.toFixed(6)}}]`).join("\\n")
-        : "Manual nodes: chua co";
+        : "Manual nodes: chưa có";
     }}
 
     function edgeKey(edge) {{
@@ -914,7 +914,7 @@ def _render_map_html(payload: dict) -> str:
     function renderEdgeTable() {{
       edgeList.replaceChildren();
       if (!customEdges.length) {{
-        edgeList.textContent = "Custom edges: chua co";
+        edgeList.textContent = "Custom edges: chưa có";
         return;
       }}
       const table = document.createElement("table");
@@ -933,7 +933,7 @@ def _render_map_html(payload: dict) -> str:
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "danger";
-        remove.textContent = "Xoa";
+      remove.textContent = "Xóa";
         remove.addEventListener("click", () => {{
           customEdges.splice(index, 1);
           renderCustomEdges();
@@ -956,7 +956,7 @@ def _render_map_html(payload: dict) -> str:
         return;
       }}
       if (!Number.isFinite(distanceKm) || distanceKm < 0 || !Number.isFinite(baseMinutes) || baseMinutes < 0) {{
-        edgeList.textContent = "Distance va minutes phai la so khong am.";
+        edgeList.textContent = "Distance và minutes phải là số không âm.";
         return;
       }}
       const nextEdge = {{
@@ -1037,7 +1037,7 @@ def _render_map_html(payload: dict) -> str:
       const text = JSON.stringify(manualNodePayload(), null, 2);
       try {{
         await navigator.clipboard.writeText(text);
-        manualList.textContent = manualNodes.length ? `${{manualList.textContent}}\\n\\nCopied.` : "Manual nodes: chua co";
+        manualList.textContent = manualNodes.length ? `${{manualList.textContent}}\\n\\nCopied.` : "Manual nodes: chưa có";
       }} catch {{
         manualList.textContent = text || "[]";
       }}
