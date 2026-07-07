@@ -34,6 +34,24 @@ Khi cần chạy local để phát triển hoặc kiểm tra source:
 powershell -ExecutionPolicy Bypass -File .\run_app.ps1
 ```
 
+## Ứng dụng làm được gì?
+
+Find Your Path gom các luồng quan trọng của một hệ thống điều phối đô thị vào một web app có thể thao tác trực tiếp:
+
+| Nhóm chức năng | Mô tả |
+| --- | --- |
+| Tài xế/shipper | Đăng nhập theo loại tài khoản, xem nhiệm vụ khả dụng, nhận đơn, lập tuyến, hoàn tất đơn và theo dõi thời gian hoạt động. |
+| Điều phối tuyến đường | Tính route theo vị trí hiện tại, kho, pickup và dropoff; hiển thị trực quan trên bản đồ Leaflet/OpenStreetMap. |
+| AI/Defense Lab | Chạy, so sánh và quan sát các nhóm thuật toán qua path, visited nodes, runtime, metrics và trace/debug. |
+| Admin/giảng viên vấn đáp | Quản lý nhóm shipper, quyền thuật toán, kịch bản kiểm thử và các luồng phục vụ giải thích thuật toán. |
+| Chăm sóc tài xế | Nhắc nhở sức khỏe và thống kê thời gian chạy theo ngày/tháng để mô phỏng yếu tố vận hành thực tế. |
+
+Các luồng đáng xem nhanh trên web app:
+
+1. Đăng nhập bằng `shipper_a`, nhận đơn và lập tuyến để xem bản đồ tạo route.
+2. Đăng nhập bằng `admin`, mở Defense Lab để chạy thuật toán và quan sát metrics/debug.
+3. Xem phần thống kê thời gian hoạt động và nhắc nhở sức khỏe trong luồng shipper.
+
 ## Tính năng chính
 
 - Đăng nhập theo vai trò admin, shipper cuốc lẻ và shipper kho.
