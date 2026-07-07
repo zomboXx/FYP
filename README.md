@@ -4,10 +4,10 @@
   <img src="src/app/ui/assets/app-icon.png" alt="Find Your Path logo" width="160" />
 </p>
 
-**Smart Urban Delivery Planner**  
-Trợ lý lập lộ trình giao hàng xe máy trong đô thị Việt Nam.
+**AI Route Optimizer for Urban Delivery**  
+Trợ lý lập lộ trình cho tài xế, shipper và các dịch vụ di chuyển trong đô thị Việt Nam.
 
-Find Your Path là MVP cho đồ án AI cuối khóa. Ứng dụng mô phỏng quy trình giao hàng, cho phép admin bật/tắt nhóm thuật toán theo nhóm shipper, shipper nhận đơn và hệ thống lập lộ trình bằng các thuật toán được cài đặt trong project.
+Find Your Path là đồ án cuối kỳ của học phần Trí Tuệ Nhân Tạo. Ứng dụng mô phỏng một hệ thống điều phối giao hàng/di chuyển đô thị, nơi tài xế có thể nhận nhiệm vụ, lập tuyến, theo dõi bản đồ, nhận nhắc nhở chăm sóc sức khỏe và xem thống kê thời gian hoạt động. Phần AI tập trung vào việc áp dụng, so sánh và trực quan hóa nhiều nhóm thuật toán tìm đường, tối ưu và ra quyết định trong cùng một bối cảnh vận hành.
 
 ## Thông tin đồ án
 
@@ -24,20 +24,27 @@ Find Your Path là MVP cho đồ án AI cuối khóa. Ứng dụng mô phỏng q
 | Nguyễn Đức Phát | `24110296` |
 | Nguyễn Văn Thi | `24110334` |
 
-## Demo
+## Trải nghiệm ứng dụng
 
-Web app: <https://find-your-path-fyp.vercel.app>
+Ứng dụng đã được triển khai tại: <https://find-your-path-fyp.vercel.app>
 
-Bản deploy hiện tại dùng SQLite tạm thời cho mục đích demo. Dữ liệu trên Vercel có thể reset khi cold start, redeploy hoặc function instance thay đổi.
+Khi cần chạy local để phát triển hoặc kiểm tra source:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run_app.ps1
+```
 
 ## Tính năng chính
 
-- Đăng nhập với vai trò admin và shipper.
-- Admin quản lý quyền sử dụng thuật toán theo nhóm shipper.
-- Shipper xem đơn khả dụng, nhận đơn, lập tuyến và hoàn tất đơn.
-- Bản đồ Leaflet/OpenStreetMap hiển thị điểm nhận, điểm giao và tuyến đường.
-- Defense Lab hỗ trợ quan sát kết quả và debug từng nhóm thuật toán.
-- Nhóm Complex Environment có Online Replanning và AND-OR Search để trình bày partial observation, belief update và conditional plan.
+- Đăng nhập theo vai trò admin, shipper cuốc lẻ và shipper kho.
+- Tài xế/shipper xem nhiệm vụ khả dụng, nhận đơn, lập tuyến và hoàn tất đơn.
+- Lập tuyến theo các điểm hiện tại, kho, pickup và dropoff tùy loại nhiệm vụ.
+- Bản đồ Leaflet/OpenStreetMap hiển thị vị trí, điểm nhận, điểm giao và tuyến đường.
+- Defense Lab trực quan hóa kết quả, metrics và trace/debug của các nhóm thuật toán AI.
+- Hỗ trợ các nhóm thuật toán như Uninformed Search, Informed Search, Local Search, CSP, Complex Environment và Adversarial Search.
+- Admin quản lý nhóm shipper, quyền thuật toán và các kịch bản phục vụ phần vấn đáp.
+- Nhắc nhở/chăm sóc sức khỏe cho tài xế/shipper trong quá trình hoạt động.
+- Thống kê thời gian chạy trong ngày và theo tháng để theo dõi cường độ làm việc.
 
 Route được tính bởi code Python trong project, không gọi Google Directions, OSRM hoặc routing service bên ngoài để thay thế thuật toán.
 
@@ -64,41 +71,21 @@ scripts              Script hỗ trợ
 docs                 Tài liệu BA, demo, thuật toán và báo cáo
 ```
 
-## Chạy local
-
-Cách khuyến nghị trên Windows:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_app.ps1
-```
-
-Script sẽ kiểm tra dependency, chọn port phù hợp nếu `8000` đang bận và in URL trên terminal.
-
-Cách chạy thủ công:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:PYTHONPATH = ".\src"
-uvicorn app.main:app --reload
-```
-
-Mở app tại `http://127.0.0.1:8000`. API nằm dưới prefix `/api`.
-
 ## Hướng dẫn bằng hình ảnh
 
-Khu vực này được dành cho GIF hoặc video hướng dẫn cài đặt và chạy demo.
+### Luồng shipper: đăng nhập, nhận đơn và lập tuyến
 
-Gợi ý nội dung nên bổ sung sau:
+<p align="center">
+  <img src="docs/assets/readme/shipper.gif" alt="Shipper đăng nhập, nhận đơn và lập tuyến trên bản đồ" width="760" />
+</p>
 
-- Cài môi trường và chạy `run_app.ps1`.
-- Đăng nhập bằng tài khoản demo.
-- Admin bật/tắt thuật toán cho nhóm shipper.
-- Shipper nhận đơn, lập tuyến và xem kết quả trên bản đồ.
-- Defense Lab quan sát trace/debug của thuật toán.
+### Luồng admin: quản trị và quan sát thuật toán
 
-## Tài khoản demo
+<p align="center">
+  <img src="docs/assets/readme/admin.gif" alt="Admin đăng nhập, quản trị và quan sát thuật toán" width="760" />
+</p>
+
+## Tài khoản dùng thử
 
 | Username | Password | Vai trò |
 | --- | --- | --- |
@@ -106,34 +93,15 @@ Gợi ý nội dung nên bổ sung sau:
 | `shipper_a` | `shipper123` | On-demand: Food/Ride, current -> pickup -> dropoff |
 | `shipper_b` | `shipper123` | Depot delivery: Parcel/Grocery, xuất phát từ kho |
 
-## Kiểm tra
+## Phát triển
 
-Chạy hook trước khi demo, commit hoặc deploy:
+Trước khi bàn giao hoặc commit, chạy hook kiểm tra:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\pre_check.ps1
 ```
 
-Hook sẽ compile source, chạy test và scan các dấu hiệu code chưa sạch như `TODO`, `FIXME`, debug `print`, `console.log` hoặc code bị comment-out.
-
-## Deploy
-
-Vercel hiện phù hợp cho demo, chưa phải cấu hình production storage.
-
-Biến môi trường cần có:
-
-```text
-FYP_JWT_SECRET=<chuỗi-bí-mật-dài-ngẫu-nhiên>
-PYTHONPATH=src
-```
-
-Tùy chọn:
-
-```text
-FYP_DB_PATH=/tmp/fyp.sqlite
-```
-
-Nếu không set `FYP_DB_PATH`, app dùng `src/app/data/fyp.sqlite` khi chạy local và `/tmp/fyp.sqlite` khi chạy trên Vercel.
+Các ghi chú chi tiết về dữ liệu, storage, kịch bản demo, UI/UX và phân tích thuật toán nằm trong thư mục `docs`.
 
 ## Tài liệu
 
@@ -144,14 +112,3 @@ Nếu không set `FYP_DB_PATH`, app dùng `src/app/data/fyp.sqlite` khi chạy l
 - `docs/ui-ux-overview.md`: tổng quan UI/UX.
 - `docs/report-outline.md`: đề cương báo cáo học thuật.
 - `docs/academic-analysis.md`: phân tích học thuật, mô hình state và tính chất thuật toán.
-
-## Ghi chú dữ liệu bản đồ
-
-OSM graph cache nằm ở `src/app/data/osm_hcm_q1.json`. Khi demo, app dùng cache local để tránh phụ thuộc mạng.
-
-Chỉ cần tái tạo cache khi muốn lấy lại dữ liệu từ OpenStreetMap/Overpass:
-
-```powershell
-python -m pip install osmnx
-python scripts/import_osm_graph.py
-```
