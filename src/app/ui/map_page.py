@@ -72,6 +72,7 @@ def _render_map_html(payload: dict) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FYP Delivery Map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script defer src="https://cdn.vercel-insights.com/v1/script.js"></script>
   <style>
     html, body, #map {{
       height: 100%;
